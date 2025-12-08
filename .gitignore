@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+logs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables (Sensitive Data)
+.env
+
+# MacOS
+.DS_Store
+
+# Project Specific
+storage/
+*.ipynb
+*.pdf
+
+# Test and Backup Files
+app_backup.py
+app_new.py
+inspect_adk.py
+test_adk_gemini.py
+test_output.txt
