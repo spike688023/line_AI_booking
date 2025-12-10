@@ -89,50 +89,138 @@ class PaymentStatusAgent(BaseAgent):
 class ConversationAgent(BaseAgent):
     """
     Main Orchestrator Agent.
-    Routes user input to the appropriate sub-agent.
+    Uses LLM Function Calling to route user input.
     """
     def __init__(self):
         super().__init__("ConversationAgent")
         self.reservation_agent = ReservationQueryAgent()
         self.order_agent = OrderGenerationAgent()
         self.payment_agent = PaymentStatusAgent()
-        self.model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        # Define tools for Gemini
+        self.tools = [
+            {
+                "function_declarations": [
+                    {
+                        "name": "book_table",
+                        "description": "Book a table for a customer. Use this when the user wants to make a reservation.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "date": {"type": "STRING", "description": "Date of reservation (YYYY-MM-DD)"},
+                                "time": {"type": "STRING", "description": "Time of reservation (HH:MM)"},
+                                "pax": {"type": "INTEGER", "description": "Number of people"}
+                            },
+                            "required": ["date", "time", "pax"]
+                        }
+                    },
+                    {
+                        "name": "order_food",
+                        "description": "Place an order for a reservation. Use this when the user wants to order food.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "reservation_id": {"type": "STRING", "description": "The reservation ID"},
+                                "items": {"type": "STRING", "description": "Comma separated list of items"}
+                            },
+                            "required": ["reservation_id", "items"]
+                        }
+                    },
+                    {
+                        "name": "check_payment",
+                        "description": "Check payment status for an order.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "order_id": {"type": "STRING", "description": "The order ID"}
+                            },
+                            "required": ["order_id"]
+                        }
+                    }
+                ]
+            }
+        ]
+        
+        self.model = genai.GenerativeModel('gemini-2.0-flash', tools=self.tools)
 
     async def process(self, input_text: str, context: Dict[str, Any] = None) -> str:
-        """
-        Main entry point.
-        1. Identify intent.
-        2. Route to sub-agent.
-        3. Return response.
-        """
-        logger.info(f"Processing input: {input_text}")
+        logger.info(f"Processing input with LLM: {input_text}")
         
-        # Simple keyword-based routing
-        input_lower = input_text.lower()
+        # Fetch Menu
+        menu_items = await db.get_menu()
+        menu_str = "\n".join([f"- {item['name']} (${item['price']}): {item.get('category', 'General')}" for item in menu_items])
         
-        if "book" in input_lower or "reserve" in input_lower or "訂位" in input_lower:
-            return await self.reservation_agent.process(input_text, context)
-        elif "order" in input_lower or "confirm" in input_lower or "下單" in input_lower:
-            return await self.order_agent.process(input_text, context)
-        elif "pay" in input_lower or "status" in input_lower or "付款" in input_lower:
-            return await self.payment_agent.process(input_text, context)
-        else:
-            # Fallback to LLM
-            try:
-                prompt = f"""You are a helpful assistant for a Coffee Shop. 
-                The user said: "{input_text}"
+        # Store Policy
+        policy_str = """
+        【Store Policy】
+        1. Minimum charge: $200 per person.
+        2. Time limit: 1st Floor is limited to 90 minutes. 2nd and 3rd Floors have no time limit.
+        3. No outside food or drinks.
+        """
+        
+        try:
+            # Start a chat session to handle function calling
+            chat = self.model.start_chat(enable_automatic_function_calling=True)
+            
+            # Construct System Prompt with Context
+            system_prompt = f"""
+            You are a helpful Coffee Shop Assistant.
+            
+            {policy_str}
+            
+            【Current Menu】
+            {menu_str}
+            
+            User Input: {input_text}
+            
+            Instructions:
+            1. Answer based on the Store Policy and Menu.
+            2. If the user wants to perform an action (Book, Order, Pay), call the appropriate function.
+            3. If the user is just chatting, reply conversationally.
+            4. If the user orders something not on the menu, politely inform them.
+            5. Always reply in the same language as the user's input (e.g., Traditional Chinese for Chinese input, English for English input).
+            """
+            
+            # Note: In a real app, we should use 'system_instruction' in model config, 
+            # but for per-turn context injection (like dynamic menu), putting it in the prompt is fine.
+            
+            response = await chat.send_message_async(system_prompt)
+            
+            # Check if function call happened (Gemini 2.0 might handle this differently in the SDK)
+            # With enable_automatic_function_calling=True, the SDK executes the function if we provide the implementation.
+            # But here our implementations are in other classes.
+            
+            # Let's try a different approach: Disable automatic execution and inspect the parts.
+            chat = self.model.start_chat(enable_automatic_function_calling=False)
+            response = await chat.send_message_async(system_prompt)
+            
+            part = response.parts[0]
+            
+            if part.function_call:
+                fc = part.function_call
+                func_name = fc.name
+                args = fc.args
                 
-                If they are asking about the menu, recommend our signature Coffee and Cake.
-                If they are just saying hi, greet them warmly.
-                If they seem confused, explain that you can help them Book a table, Order food, or Check payment status.
+                logger.info(f"LLM decided to call: {func_name} with {args}")
                 
-                Keep the response concise and friendly.
-                """
-                response = await self.model.generate_content_async(prompt)
-                return response.text
-            except Exception as e:
-                logger.error(f"LLM Error: {e}")
-                return "Welcome to Coffee Shop! \n1. To book: 'Book YYYY-MM-DD HH:MM PAX'\n2. To order: 'Order [ResID] [Items]'\n3. Payment status: 'Pay [OrderID]'"
+                if func_name == "book_table":
+                    command = f"Book {args['date']} {args['time']} {int(args['pax'])}"
+                    return await self.reservation_agent.process(command, context)
+                    
+                elif func_name == "order_food":
+                    command = f"Order {args['reservation_id']} {args['items']}"
+                    return await self.order_agent.process(command, context)
+                    
+                elif func_name == "check_payment":
+                    command = f"Pay {args['order_id']}"
+                    return await self.payment_agent.process(command, context)
+            
+            # If no function call, return the text
+            return response.text
+
+        except Exception as e:
+            logger.error(f"LLM Error: {e}")
+            return "Sorry, I'm having trouble understanding. Please try again."
 
 # Singleton instance
 conversation_agent = ConversationAgent()

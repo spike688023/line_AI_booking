@@ -16,15 +16,21 @@ async def test_llm():
     response = await conversation_agent.process(input_text, context={"user_id": "test_user"})
     print(f"Response: {response}")
     
-    # Test case 2: Menu query (Should trigger LLM)
-    input_text = "What do you recommend?"
-    print(f"Input: {input_text}")
+    # Test case 2: Policy Query (Minimum Charge)
+    input_text = "What is the minimum charge?"
+    print(f"\nInput: {input_text}")
     response = await conversation_agent.process(input_text, context={"user_id": "test_user"})
     print(f"Response: {response}")
 
-    # Test case 3: Booking (Should trigger ReservationAgent)
+    # Test case 3: Menu Query (Price)
+    input_text = "How much is the Latte?"
+    print(f"\nInput: {input_text}")
+    response = await conversation_agent.process(input_text, context={"user_id": "test_user"})
+    print(f"Response: {response}")
+
+    # Test case 4: Booking (Should trigger ReservationAgent)
     input_text = "Book 2023-10-27 18:00 4"
-    print(f"Input: {input_text}")
+    print(f"\nInput: {input_text}")
     response = await conversation_agent.process(input_text, context={"user_id": "test_user"})
     print(f"Response: {response}")
 

@@ -93,5 +93,58 @@ class Database:
             logger.error(f"Failed to create order: {e}")
             return None
 
+    async def get_menu(self) -> List[Dict[str, Any]]:
+        """
+        Fetch all menu items from Firestore.
+        """
+        if not self.client:
+            # Return mock menu if DB not connected
+            return [
+                {"name": "Americano", "price": 80, "category": "Coffee"},
+                {"name": "Latte", "price": 120, "category": "Coffee"},
+                {"name": "Cheese Cake", "price": 120, "category": "Cake"}
+            ]
+        
+        try:
+            menu_ref = self.client.collection("menu")
+            docs = menu_ref.stream()
+            menu_items = []
+            for doc in docs:
+                item = doc.to_dict()
+                item['id'] = doc.id
+                menu_items.append(item)
+            return menu_items
+        except Exception as e:
+            logger.error(f"Failed to fetch menu: {e}")
+            return []
+
+    async def seed_menu(self):
+        """
+        Populate the menu with initial data if empty.
+        """
+        if not self.client:
+            return
+
+        try:
+            menu_ref = self.client.collection("menu")
+            # Check if empty
+            if len(list(menu_ref.limit(1).stream())) > 0:
+                logger.info("Menu already exists. Skipping seed.")
+                return
+
+            initial_menu = [
+                {"name": "Americano", "price": 80, "category": "Coffee", "description": "Classic black coffee"},
+                {"name": "Latte", "price": 120, "category": "Coffee", "description": "Espresso with steamed milk"},
+                {"name": "Cappuccino", "price": 120, "category": "Coffee", "description": "Espresso with foam"},
+                {"name": "Cheese Cake", "price": 120, "category": "Cake", "description": "Rich and creamy"},
+                {"name": "Chocolate Cake", "price": 140, "category": "Cake", "description": "Dark chocolate delight"}
+            ]
+
+            for item in initial_menu:
+                menu_ref.add(item)
+            logger.info("Menu seeded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to seed menu: {e}")
+
 # Singleton instance
 db = Database()
