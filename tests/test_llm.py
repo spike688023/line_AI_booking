@@ -28,8 +28,8 @@ async def test_llm():
     response = await conversation_agent.process(input_text, context={"user_id": "test_user"})
     print(f"Response: {response}")
 
-    # Test case 4: Booking (Should trigger ReservationAgent)
-    input_text = "Book 2023-10-27 18:00 4"
+    # Test case 4: Booking (Should trigger ReservationAgent with Name/Phone)
+    input_text = "Book a table for 2023-12-25 at 6pm for 4 people. My name is John Doe, phone 0912345678."
     print(f"\nInput: {input_text}")
     response = await conversation_agent.process(input_text, context={"user_id": "test_user"})
     print(f"Response: {response}")

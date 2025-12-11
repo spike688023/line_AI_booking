@@ -36,7 +36,7 @@ class Database:
         # For now, just return True
         return True
 
-    async def create_reservation(self, user_id: str, date: str, time: str, pax: int) -> str:
+    async def create_reservation(self, user_id: str, date: str, time: str, pax: int, name: str, phone: str) -> str:
         """
         Create a new reservation.
         """
@@ -48,6 +48,8 @@ class Database:
             reservation_ref = self.client.collection("reservations").document()
             reservation_data = {
                 "user_id": user_id,
+                "name": name,
+                "phone": phone,
                 "date": date,
                 "time": time,
                 "pax": pax,
@@ -60,6 +62,64 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to create reservation: {e}")
             return None
+
+    async def get_user_reservations(self, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Fetch active reservations for a user.
+        """
+        if not self.client:
+            return []
+        
+        try:
+            reservations_ref = self.client.collection("reservations")
+            query = reservations_ref.where("user_id", "==", user_id).where("status", "==", "confirmed")
+            docs = query.stream()
+            
+            reservations = []
+            for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
+                reservations.append(data)
+            return reservations
+        except Exception as e:
+            logger.error(f"Failed to fetch user reservations: {e}")
+            return []
+
+    async def modify_reservation(self, reservation_id: str, new_date: str, new_time: str) -> str:
+        """
+        Modify an existing reservation. Checks availability first.
+        Returns: "success", "unavailable", "not_found", or "error"
+        """
+        if not self.client:
+            return "error"
+
+        try:
+            reservation_ref = self.client.collection("reservations").document(reservation_id)
+            doc = reservation_ref.get()
+            
+            if not doc.exists:
+                return "not_found"
+            
+            data = doc.to_dict()
+            pax = data.get("pax", 0)
+            
+            # Check availability for new slot
+            is_available = await self.check_availability(new_date, new_time, pax)
+            if not is_available:
+                return "unavailable"
+            
+            # Update reservation
+            reservation_ref.update({
+                "date": new_date,
+                "time": new_time,
+                "updated_at": firestore.SERVER_TIMESTAMP
+            })
+            logger.info(f"Reservation modified: {reservation_id} -> {new_date} {new_time}")
+            return "success"
+            
+        except Exception as e:
+            logger.error(f"Failed to modify reservation: {e}")
+            return "error"
 
     async def get_reservation(self, reservation_id: str) -> Optional[Dict[str, Any]]:
         if not self.client:

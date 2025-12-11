@@ -33,22 +33,65 @@ class ReservationQueryAgent(BaseAgent):
     async def process(self, input_text: str, context: Dict[str, Any] = None) -> str:
         user_id = context.get("user_id", "unknown_user")
         
-        # Simple regex to extract date, time, pax
-        # Expected format: "Book 2023-10-27 18:00 4"
+        # Command: "GetMyReservations"
+        if input_text == "GetMyReservations":
+            reservations = await db.get_user_reservations(user_id)
+            if not reservations:
+                return "You don't have any active reservations."
+            
+            res_str = "\n".join([f"- ID: {r['id']}, Date: {r['date']}, Time: {r['time']}, Pax: {r['pax']}" for r in reservations])
+            return f"Here are your reservations:\n{res_str}"
+
+        # Command: "Modify|ResID|NewDate|NewTime"
+        if input_text.startswith("Modify|"):
+            try:
+                _, res_id, new_date, new_time = input_text.split("|")
+                result = await db.modify_reservation(res_id, new_date, new_time)
+                
+                if result == "success":
+                    return f"Reservation {res_id} modified successfully to {new_date} {new_time}."
+                elif result == "unavailable":
+                    return f"Sorry, the new time slot {new_date} {new_time} is not available."
+                elif result == "not_found":
+                    return f"Reservation {res_id} not found."
+                else:
+                    return "An error occurred while modifying the reservation."
+            except ValueError:
+                return "Error processing modification request."
+
+        # New Format: "Book|YYYY-MM-DD|HH:MM|PAX|Name|Phone"
+        if "|" in input_text and input_text.startswith("Book"):
+            try:
+                _, date, time, pax, name, phone = input_text.split("|")
+                pax = int(pax)
+                
+                is_available = await db.check_availability(date, time, pax)
+                if is_available:
+                    reservation_id = await db.create_reservation(user_id, date, time, pax, name, phone)
+                    return f"Table available! Reservation confirmed for {name}.\nID: {reservation_id}\nTime: {date} {time}\nPax: {pax}"
+                else:
+                    return "Sorry, no tables available for that time."
+            except ValueError:
+                return "Error processing reservation data."
+        
+        # Legacy Format (Regex) - Keep for backward compatibility or direct testing
         match = re.search(r"(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+(\d+)", input_text)
         
         if match:
             date, time, pax = match.groups()
             pax = int(pax)
+            # Use default name/phone for legacy calls
+            name = "Guest"
+            phone = "Unknown"
             
             is_available = await db.check_availability(date, time, pax)
             if is_available:
-                reservation_id = await db.create_reservation(user_id, date, time, pax)
+                reservation_id = await db.create_reservation(user_id, date, time, pax, name, phone)
                 return f"Table available! Reservation confirmed. ID: {reservation_id}"
             else:
                 return "Sorry, no tables available for that time."
         else:
-            return "Please provide date, time, and number of people. Format: YYYY-MM-DD HH:MM PAX (e.g., 2023-10-27 18:00 4)"
+            return "Please provide date, time, number of people, name, and phone."
 
 class OrderGenerationAgent(BaseAgent):
     """
@@ -109,9 +152,33 @@ class ConversationAgent(BaseAgent):
                             "properties": {
                                 "date": {"type": "STRING", "description": "Date of reservation (YYYY-MM-DD)"},
                                 "time": {"type": "STRING", "description": "Time of reservation (HH:MM)"},
-                                "pax": {"type": "INTEGER", "description": "Number of people"}
+                                "pax": {"type": "INTEGER", "description": "Number of people"},
+                                "name": {"type": "STRING", "description": "Customer Name"},
+                                "phone": {"type": "STRING", "description": "Customer Phone Number"}
                             },
-                            "required": ["date", "time", "pax"]
+                            "required": ["date", "time", "pax", "name", "phone"]
+                        }
+                    },
+                    {
+                        "name": "get_my_reservations",
+                        "description": "Get a list of active reservations for the current user.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {},
+                            "required": []
+                        }
+                    },
+                    {
+                        "name": "modify_reservation",
+                        "description": "Modify an existing reservation. Use this when the user wants to change the date or time.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "reservation_id": {"type": "STRING", "description": "The ID of the reservation to modify"},
+                                "new_date": {"type": "STRING", "description": "New date (YYYY-MM-DD)"},
+                                "new_time": {"type": "STRING", "description": "New time (HH:MM)"}
+                            },
+                            "required": ["reservation_id", "new_date", "new_time"]
                         }
                     },
                     {
@@ -179,16 +246,11 @@ class ConversationAgent(BaseAgent):
             3. If the user is just chatting, reply conversationally.
             4. If the user orders something not on the menu, politely inform them.
             5. Always reply in the same language as the user's input (e.g., Traditional Chinese for Chinese input, English for English input).
+            6. If the user wants to modify a reservation, first use 'get_my_reservations' to show them what they have, then use 'modify_reservation' if they confirm.
             """
             
             # Note: In a real app, we should use 'system_instruction' in model config, 
             # but for per-turn context injection (like dynamic menu), putting it in the prompt is fine.
-            
-            response = await chat.send_message_async(system_prompt)
-            
-            # Check if function call happened (Gemini 2.0 might handle this differently in the SDK)
-            # With enable_automatic_function_calling=True, the SDK executes the function if we provide the implementation.
-            # But here our implementations are in other classes.
             
             # Let's try a different approach: Disable automatic execution and inspect the parts.
             chat = self.model.start_chat(enable_automatic_function_calling=False)
@@ -204,7 +266,14 @@ class ConversationAgent(BaseAgent):
                 logger.info(f"LLM decided to call: {func_name} with {args}")
                 
                 if func_name == "book_table":
-                    command = f"Book {args['date']} {args['time']} {int(args['pax'])}"
+                    command = f"Book|{args['date']}|{args['time']}|{int(args['pax'])}|{args['name']}|{args['phone']}"
+                    return await self.reservation_agent.process(command, context)
+                
+                elif func_name == "get_my_reservations":
+                    return await self.reservation_agent.process("GetMyReservations", context)
+                
+                elif func_name == "modify_reservation":
+                    command = f"Modify|{args['reservation_id']}|{args['new_date']}|{args['new_time']}"
                     return await self.reservation_agent.process(command, context)
                     
                 elif func_name == "order_food":
