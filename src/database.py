@@ -85,10 +85,10 @@ class Database:
             logger.error(f"Failed to fetch user reservations: {e}")
             return []
 
-    async def modify_reservation(self, reservation_id: str, new_date: str, new_time: str) -> str:
+    async def modify_reservation(self, reservation_id: str, new_date: str, new_time: str, user_id: str) -> str:
         """
-        Modify an existing reservation. Checks availability first.
-        Returns: "success", "unavailable", "not_found", or "error"
+        Modify an existing reservation. Checks availability and ownership first.
+        Returns: "success", "unavailable", "not_found", "permission_denied", or "error"
         """
         if not self.client:
             return "error"
@@ -101,6 +101,12 @@ class Database:
                 return "not_found"
             
             data = doc.to_dict()
+            
+            # Ownership Check
+            if data.get("user_id") != user_id:
+                logger.warning(f"Unauthorized modification attempt by {user_id} on {reservation_id}")
+                return "permission_denied"
+            
             pax = data.get("pax", 0)
             
             # Check availability for new slot

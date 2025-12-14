@@ -46,12 +46,14 @@ class ReservationQueryAgent(BaseAgent):
         if input_text.startswith("Modify|"):
             try:
                 _, res_id, new_date, new_time = input_text.split("|")
-                result = await db.modify_reservation(res_id, new_date, new_time)
+                result = await db.modify_reservation(res_id, new_date, new_time, user_id)
                 
                 if result == "success":
                     return f"Reservation {res_id} modified successfully to {new_date} {new_time}."
                 elif result == "unavailable":
                     return f"Sorry, the new time slot {new_date} {new_time} is not available."
+                elif result == "permission_denied":
+                    return "You do not have permission to modify this reservation."
                 elif result == "not_found":
                     return f"Reservation {res_id} not found."
                 else:

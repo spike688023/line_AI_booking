@@ -55,5 +55,17 @@ async def test_modification():
             assert r['time'] == "19:00"
             print("Verification Successful! ✅")
 
+    # 5. Test Security (Unauthorized Modification)
+    print("\n[5] Testing Security (Unauthorized Modification)...")
+    attacker_id = "hacker_user"
+    input_text = f"Change reservation {res_id} to 2023-12-27 at 19:00"
+    response = await conversation_agent.process(input_text, context={"user_id": attacker_id})
+    print(f"Attacker Response:\n{response}")
+    
+    if "permission" in response.lower() or "not have permission" in response.lower():
+        print("Security Check Passed! 🛡️")
+    else:
+        print("Security Check FAILED! ⚠️")
+
 if __name__ == "__main__":
     asyncio.run(test_modification())
