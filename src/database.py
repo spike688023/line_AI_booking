@@ -63,29 +63,130 @@ class Database:
             logger.error(f"Failed to create reservation: {e}")
             return None
 
-    async def get_user_reservations(self, user_id: str) -> List[Dict[str, Any]]:
+    async def get_user_reservations(self, user_id: str, include_past: bool = False) -> List[Dict[str, Any]]:
         """
-        Fetch active reservations for a user.
+        Get all active reservations for a user.
+        By default, only returns future reservations (including today).
         """
         if not self.client:
             return []
-        
+
         try:
             reservations_ref = self.client.collection("reservations")
-            query = reservations_ref.where("user_id", "==", user_id).where("status", "==", "confirmed")
-            docs = query.stream()
+            # Filter by user_id
+            query = reservations_ref.where("user_id", "==", user_id)
             
+            # Execute query
+            docs = query.stream()
             reservations = []
+            
+            from datetime import datetime
+            today = datetime.now().strftime("%Y-%m-%d")
+            
             for doc in docs:
                 data = doc.to_dict()
                 data['id'] = doc.id
+                
+                # Filter past reservations if not requested
+                if not include_past:
+                    res_date = data.get('date')
+                    if res_date and res_date < today:
+                        continue
+                        
                 reservations.append(data)
+                
+            # Sort by date and time
+            reservations.sort(key=lambda x: (x.get('date', ''), x.get('time', '')))
+            
             return reservations
         except Exception as e:
             logger.error(f"Failed to fetch user reservations: {e}")
             return []
 
-    async def modify_reservation(self, reservation_id: str, new_date: str, new_time: str, user_id: str) -> str:
+    async def get_all_reservations(self, include_past: bool = False) -> List[Dict[str, Any]]:
+        """
+        Get ALL reservations for admin view.
+        """
+        if not self.client:
+            return []
+
+        try:
+            reservations_ref = self.client.collection("reservations")
+            docs = reservations_ref.stream()
+            reservations = []
+            
+            from datetime import datetime
+            today = datetime.now().strftime("%Y-%m-%d")
+            
+            for doc in docs:
+                data = doc.to_dict()
+                data['id'] = doc.id
+                
+                # Filter past reservations if not requested
+                if not include_past:
+                    res_date = data.get('date')
+                    if res_date and res_date < today:
+                        continue
+                        
+                reservations.append(data)
+                
+            # Sort by date and time
+            reservations.sort(key=lambda x: (x.get('date', ''), x.get('time', '')))
+            return reservations
+        except Exception as e:
+            logger.error(f"Failed to fetch all reservations: {e}")
+            return []
+
+    async def delete_past_reservations(self) -> int:
+        """
+        Delete all reservations before today.
+        Returns the number of deleted documents.
+        """
+        if not self.client:
+            return 0
+            
+        try:
+            from datetime import datetime
+            today = datetime.now().strftime("%Y-%m-%d")
+            
+            reservations_ref = self.client.collection("reservations")
+            # Query for dates less than today
+            query = reservations_ref.where("date", "<", today)
+            docs = query.stream()
+            
+            count = 0
+            batch = self.client.batch()
+            
+            for doc in docs:
+                batch.delete(doc.reference)
+                count += 1
+                # Firestore batch limit is 500, commit if needed (simplified here)
+            
+            if count > 0:
+                batch.commit()
+                logger.info(f"Deleted {count} past reservations.")
+                
+            return count
+        except Exception as e:
+            logger.error(f"Failed to delete past reservations: {e}")
+            return 0
+
+    async def delete_reservation(self, reservation_id: str) -> bool:
+        """
+        Delete a reservation by ID.
+        """
+        if not self.client:
+            return False
+            
+        try:
+            self.client.collection("reservations").document(reservation_id).delete()
+            logger.info(f"Reservation deleted: {reservation_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete reservation: {e}")
+            return False
+
+    async def modify_reservation(self, reservation_id: str, new_date: str, new_time: str, user_id: str, is_admin: bool = False) -> str:
         """
         Modify an existing reservation. Checks availability and ownership first.
         Returns: "success", "unavailable", "not_found", "permission_denied", or "error"
@@ -102,14 +203,15 @@ class Database:
             
             data = doc.to_dict()
             
-            # Ownership Check
-            if data.get("user_id") != user_id:
+            # Ownership Check (Skip if admin)
+            if not is_admin and data.get("user_id") != user_id:
                 logger.warning(f"Unauthorized modification attempt by {user_id} on {reservation_id}")
                 return "permission_denied"
             
             pax = data.get("pax", 0)
             
             # Check availability for new slot
+            # Note: Admin might want to force overbook, but for now let's keep availability check
             is_available = await self.check_availability(new_date, new_time, pax)
             if not is_available:
                 return "unavailable"

@@ -1,13 +1,17 @@
 import os
 import logging
-from fastapi import FastAPI, Request, HTTPException
-from linebot import LineBotApi, WebhookParser
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+from fastapi import FastAPI, Request, HTTPException, Form, Depends
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from linebot import LineBotApi, WebhookParser
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from src.database import db
 
 # Initialize Logging
 logging.basicConfig(
@@ -23,6 +27,12 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI
 app = FastAPI()
 
+# Initialize Templates
+templates = Jinja2Templates(directory="templates")
+
+# Admin Configuration
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123") # Default password
+
 # Initialize Line Bot
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -36,6 +46,66 @@ parser = WebhookParser(CHANNEL_SECRET) if CHANNEL_SECRET else None
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Coffee Shop Agent is running"}
+
+# --- Admin Routes ---
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_login(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/admin/login", response_class=HTMLResponse)
+async def admin_login_post(request: Request, password: str = Form(...)):
+    if password == ADMIN_PASSWORD:
+        # In a real app, use session/cookies. For simplicity, we just redirect to dashboard
+        # But wait, without cookies, we can't protect /dashboard. 
+        # Let's use a simple query param hack or just render dashboard directly for this MVP.
+        # Better: Set a cookie.
+        response = RedirectResponse(url="/admin/dashboard", status_code=303)
+        response.set_cookie(key="admin_session", value="logged_in")
+        return response
+    else:
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid Password"})
+
+@app.get("/admin/dashboard", response_class=HTMLResponse)
+async def admin_dashboard(request: Request, include_past: bool = False):
+    # Simple cookie check
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    reservations = await db.get_all_reservations(include_past=include_past)
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request, 
+        "reservations": reservations,
+        "include_past": include_past
+    })
+
+@app.post("/admin/cleanup")
+async def cleanup_reservations(request: Request):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    count = await db.delete_past_reservations()
+    # Redirect back to dashboard, maybe with a flash message (not implemented here)
+    return RedirectResponse(url="/admin/dashboard", status_code=303)
+
+@app.post("/admin/delete/{reservation_id}")
+async def delete_reservation(reservation_id: str, request: Request):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    await db.delete_reservation(reservation_id)
+    return RedirectResponse(url="/admin/dashboard", status_code=303)
+
+@app.post("/admin/update/{reservation_id}")
+async def update_reservation(reservation_id: str, request: Request, new_date: str = Form(...), new_time: str = Form(...)):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    # Admin update bypasses user_id check
+    await db.modify_reservation(reservation_id, new_date, new_time, user_id="admin", is_admin=True)
+    return RedirectResponse(url="/admin/dashboard", status_code=303)
+
+# --- Webhook Routes ---
 
 @app.post("/callback")
 async def callback(request: Request):

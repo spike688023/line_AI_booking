@@ -30,17 +30,61 @@ class ReservationQueryAgent(BaseAgent):
     def __init__(self):
         super().__init__("ReservationQueryAgent")
 
-    async def process(self, input_text: str, context: Dict[str, Any] = None) -> str:
+    async def process(self, input_text: str, context: Dict[str, Any] = None, language: str = "zh-TW") -> str:
         user_id = context.get("user_id", "unknown_user")
         
-        # Command: "GetMyReservations"
-        if input_text == "GetMyReservations":
-            reservations = await db.get_user_reservations(user_id)
-            if not reservations:
-                return "You don't have any active reservations."
+        # Helper for multilingual response
+        def get_msg(key, **kwargs):
+            messages = {
+                "zh-TW": {
+                    "no_reservations": "您目前沒有任何有效的訂位。",
+                    "reservations_list": "這是您的訂位紀錄：\n{res_str}",
+                    "modify_success": "訂位 {res_id} 已成功修改為 {new_date} {new_time}。",
+                    "modify_unavailable": "抱歉，新的時段 {new_date} {new_time} 已經客滿了。",
+                    "permission_denied": "您沒有權限修改此訂位。",
+                    "not_found": "找不到訂位 {res_id}。",
+                    "modify_error": "修改訂位時發生錯誤。",
+                    "process_error": "處理請求時發生錯誤。",
+                    "book_success": "有位子！已為您確認訂位。\n大名: {name}\nID: {reservation_id}\n時間: {date} {time}\n人數: {pax}",
+                    "book_unavailable": "抱歉，該時段已經客滿了。",
+                    "missing_info": "請提供日期、時間、人數、大名和電話。"
+                },
+                "en": {
+                    "no_reservations": "You don't have any active reservations.",
+                    "reservations_list": "Here are your reservations:\n{res_str}",
+                    "modify_success": "Reservation {res_id} modified successfully to {new_date} {new_time}.",
+                    "modify_unavailable": "Sorry, the new time slot {new_date} {new_time} is not available.",
+                    "permission_denied": "You do not have permission to modify this reservation.",
+                    "not_found": "Reservation {res_id} not found.",
+                    "modify_error": "An error occurred while modifying the reservation.",
+                    "process_error": "Error processing request.",
+                    "book_success": "Table available! Reservation confirmed for {name}.\nID: {reservation_id}\nTime: {date} {time}\nPax: {pax}",
+                    "book_unavailable": "Sorry, no tables available for that time.",
+                    "missing_info": "Please provide date, time, number of people, name, and phone."
+                }
+            }
+            # Default to English if language not supported
+            lang_msgs = messages.get(language, messages["en"])
+            return lang_msgs.get(key, "").format(**kwargs)
+
+        # Command: "GetMyReservations|include_past" or just "GetMyReservations"
+        if input_text.startswith("GetMyReservations"):
+            include_past = False
+            if "|" in input_text:
+                parts = input_text.split("|")
+                if len(parts) > 1 and parts[1] == "True":
+                    include_past = True
             
-            res_str = "\n".join([f"- ID: {r['id']}, Date: {r['date']}, Time: {r['time']}, Pax: {r['pax']}" for r in reservations])
-            return f"Here are your reservations:\n{res_str}"
+            reservations = await db.get_user_reservations(user_id, include_past=include_past)
+            if not reservations:
+                return get_msg("no_reservations")
+            
+            if language == "zh-TW":
+                res_str = "\n\n".join([f"📍 訂位 ID: {r['id']}\n   📅 日期: {r['date']}\n   ⏰ 時間: {r['time']}\n   👥 人數: {r['pax']}\n   👤 姓名: {r.get('name', 'N/A')}\n   📞 電話: {r.get('phone', 'N/A')}" for r in reservations])
+            else:
+                res_str = "\n\n".join([f"📍 ID: {r['id']}\n   📅 Date: {r['date']}\n   ⏰ Time: {r['time']}\n   👥 Pax: {r['pax']}\n   👤 Name: {r.get('name', 'N/A')}\n   📞 Phone: {r.get('phone', 'N/A')}" for r in reservations])
+            
+            return get_msg("reservations_list", res_str=res_str)
 
         # Command: "Modify|ResID|NewDate|NewTime"
         if input_text.startswith("Modify|"):
@@ -49,17 +93,17 @@ class ReservationQueryAgent(BaseAgent):
                 result = await db.modify_reservation(res_id, new_date, new_time, user_id)
                 
                 if result == "success":
-                    return f"Reservation {res_id} modified successfully to {new_date} {new_time}."
+                    return get_msg("modify_success", res_id=res_id, new_date=new_date, new_time=new_time)
                 elif result == "unavailable":
-                    return f"Sorry, the new time slot {new_date} {new_time} is not available."
+                    return get_msg("modify_unavailable", new_date=new_date, new_time=new_time)
                 elif result == "permission_denied":
-                    return "You do not have permission to modify this reservation."
+                    return get_msg("permission_denied")
                 elif result == "not_found":
-                    return f"Reservation {res_id} not found."
+                    return get_msg("not_found", res_id=res_id)
                 else:
-                    return "An error occurred while modifying the reservation."
+                    return get_msg("modify_error")
             except ValueError:
-                return "Error processing modification request."
+                return get_msg("process_error")
 
         # New Format: "Book|YYYY-MM-DD|HH:MM|PAX|Name|Phone"
         if "|" in input_text and input_text.startswith("Book"):
@@ -70,30 +114,29 @@ class ReservationQueryAgent(BaseAgent):
                 is_available = await db.check_availability(date, time, pax)
                 if is_available:
                     reservation_id = await db.create_reservation(user_id, date, time, pax, name, phone)
-                    return f"Table available! Reservation confirmed for {name}.\nID: {reservation_id}\nTime: {date} {time}\nPax: {pax}"
+                    return get_msg("book_success", name=name, reservation_id=reservation_id, date=date, time=time, pax=pax)
                 else:
-                    return "Sorry, no tables available for that time."
+                    return get_msg("book_unavailable")
             except ValueError:
-                return "Error processing reservation data."
+                return get_msg("process_error")
         
-        # Legacy Format (Regex) - Keep for backward compatibility or direct testing
+        # Legacy Format (Regex)
         match = re.search(r"(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+(\d+)", input_text)
         
         if match:
             date, time, pax = match.groups()
             pax = int(pax)
-            # Use default name/phone for legacy calls
             name = "Guest"
             phone = "Unknown"
             
             is_available = await db.check_availability(date, time, pax)
             if is_available:
                 reservation_id = await db.create_reservation(user_id, date, time, pax, name, phone)
-                return f"Table available! Reservation confirmed. ID: {reservation_id}"
+                return get_msg("book_success", name=name, reservation_id=reservation_id, date=date, time=time, pax=pax)
             else:
-                return "Sorry, no tables available for that time."
+                return get_msg("book_unavailable")
         else:
-            return "Please provide date, time, number of people, name, and phone."
+            return get_msg("missing_info")
 
 class OrderGenerationAgent(BaseAgent):
     """
@@ -102,13 +145,12 @@ class OrderGenerationAgent(BaseAgent):
     def __init__(self):
         super().__init__("OrderGenerationAgent")
 
-    async def process(self, input_text: str, context: Dict[str, Any] = None) -> str:
+    async def process(self, input_text: str, context: Dict[str, Any] = None, language: str = "zh-TW") -> str:
         # Expected format: "Order [ReservationID] [Item1, Item2]"
-        # Example: "Order res123 Coffee, Cake"
         
         parts = input_text.split(" ", 2)
         if len(parts) < 3:
-             return "Please provide Reservation ID and Items. Format: Order [ID] [Items]"
+             return "請提供訂位 ID 和餐點項目。格式：Order [ID] [Items]" if language == "zh-TW" else "Please provide Reservation ID and Items. Format: Order [ID] [Items]"
         
         reservation_id = parts[1]
         items_str = parts[2]
@@ -118,7 +160,10 @@ class OrderGenerationAgent(BaseAgent):
         total_amount = len(items) * 10.0 
         
         order_id = await db.create_order(reservation_id, items, total_amount)
-        return f"Order created! ID: {order_id}. Total: ${total_amount}. Please proceed to payment."
+        if language == "zh-TW":
+            return f"訂單已建立！ID: {order_id}。總金額: ${total_amount}。請前往付款。"
+        else:
+            return f"Order created! ID: {order_id}. Total: ${total_amount}. Please proceed to payment."
 
 class PaymentStatusAgent(BaseAgent):
     """
@@ -127,9 +172,11 @@ class PaymentStatusAgent(BaseAgent):
     def __init__(self):
         super().__init__("PaymentStatusAgent")
 
-    async def process(self, input_text: str, context: Dict[str, Any] = None) -> str:
-        # Mock payment check
-        return f"Payment status checked. All good! (Mock)"
+    async def process(self, input_text: str, context: Dict[str, Any] = None, language: str = "zh-TW") -> str:
+        if language == "zh-TW":
+            return f"付款狀態已確認。沒問題！(模擬)"
+        else:
+            return f"Payment status checked. All good! (Mock)"
 
 class ConversationAgent(BaseAgent):
     """
@@ -163,10 +210,12 @@ class ConversationAgent(BaseAgent):
                     },
                     {
                         "name": "get_my_reservations",
-                        "description": "Get a list of active reservations for the current user.",
+                        "description": "Get a list of reservations for the current user. By default returns only future reservations.",
                         "parameters": {
                             "type": "OBJECT",
-                            "properties": {},
+                            "properties": {
+                                "include_past": {"type": "BOOLEAN", "description": "Set to true to include past reservations (history)."}
+                            },
                             "required": []
                         }
                     },
@@ -279,6 +328,21 @@ class ConversationAgent(BaseAgent):
             
             part = response.parts[0]
             
+            # Detect language (Simple heuristic or ask LLM)
+            # For now, we can infer it from the user input or just default to zh-TW
+            # But since we want the LLM to control it, we can add a 'language' parameter to the tools definition?
+            # Or, simpler: The LLM instructions say "Reply in the same language".
+            # We can detect if the input is mostly English.
+            
+            def is_english(text):
+                try:
+                    text.encode(encoding='utf-8').decode('ascii')
+                except UnicodeDecodeError:
+                    return False
+                return True
+
+            current_lang = "en" if is_english(input_text) else "zh-TW"
+            
             if part.function_call:
                 fc = part.function_call
                 func_name = fc.name
@@ -288,22 +352,24 @@ class ConversationAgent(BaseAgent):
                 
                 if func_name == "book_table":
                     command = f"Book|{args['date']}|{args['time']}|{int(args['pax'])}|{args['name']}|{args['phone']}"
-                    return await self.reservation_agent.process(command, context)
+                    return await self.reservation_agent.process(command, context, language=current_lang)
                 
                 elif func_name == "get_my_reservations":
-                    return await self.reservation_agent.process("GetMyReservations", context)
+                    include_past = args.get("include_past", False)
+                    command = f"GetMyReservations|{include_past}"
+                    return await self.reservation_agent.process(command, context, language=current_lang)
                 
                 elif func_name == "modify_reservation":
                     command = f"Modify|{args['reservation_id']}|{args['new_date']}|{args['new_time']}"
-                    return await self.reservation_agent.process(command, context)
+                    return await self.reservation_agent.process(command, context, language=current_lang)
                     
                 elif func_name == "order_food":
                     command = f"Order {args['reservation_id']} {args['items']}"
-                    return await self.order_agent.process(command, context)
+                    return await self.order_agent.process(command, context, language=current_lang)
                     
                 elif func_name == "check_payment":
                     command = f"Pay {args['order_id']}"
-                    return await self.payment_agent.process(command, context)
+                    return await self.payment_agent.process(command, context, language=current_lang)
             
             # If no function call, return the text
             return response.text

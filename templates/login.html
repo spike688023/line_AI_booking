@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coffee Shop Admin Login</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/picnic">
+    <style>
+        body { display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f0f0; }
+        .card { width: 300px; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { text-align: center; margin-bottom: 20px; }
+        input { width: 100%; margin-bottom: 10px; }
+        button { width: 100%; }
+        .error { color: red; text-align: center; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Admin Login</h2>
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+        <form action="/admin/login" method="post">
+            <input type="password" name="password" placeholder="Enter Password" required>
+            <button type="submit" class="success">Login</button>
+        </form>
+    </div>
+</body>
+</html>
