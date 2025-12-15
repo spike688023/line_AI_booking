@@ -211,9 +211,13 @@ class ConversationAgent(BaseAgent):
         ]
         
         self.model = genai.GenerativeModel('gemini-2.0-flash', tools=self.tools)
+        # Simple in-memory history: {user_id: [history]}
+        # In production, use Firestore or Redis
+        self.chat_histories = {}
 
     async def process(self, input_text: str, context: Dict[str, Any] = None) -> str:
         logger.info(f"Processing input with LLM: {input_text}")
+        user_id = context.get("user_id", "unknown_user")
         
         # Fetch Menu
         menu_items = await db.get_menu()
@@ -227,36 +231,51 @@ class ConversationAgent(BaseAgent):
         3. No outside food or drinks.
         """
         
+        # Get current date
+        from datetime import datetime
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        
+        system_prompt = f"""
+        You are a helpful Coffee Shop Assistant at a cafe.
+        
+        Current Date: {current_date}
+        
+        {policy_str}
+        
+        【Current Menu】
+        {menu_str}
+        
+        Instructions:
+        1. **Language Consistency**: ALWAYS reply in the SAME language as the user's latest input. If they speak Traditional Chinese, you MUST speak Traditional Chinese.
+        2. **Conversational Flow**:
+           - If the user says "No" or "Nothing else" (e.g., "沒有了", "沒問題"), politely close the conversation (e.g., "Great! Looking forward to seeing you.", "好的，期待您的光臨！") without asking "Is there anything else?".
+           - Only ask "Is there anything else?" if the user's intent is unclear or after completing a task.
+        3. **Actions**:
+           - If the user wants to Book, Order, or Pay, call the appropriate function.
+           - If information is missing (e.g. phone number for booking), ASK for it politely.
+        4. **Modifications**:
+           - If the user wants to modify a reservation, first use 'get_my_reservations' to show them what they have, then use 'modify_reservation' if they confirm.
+        """
+
         try:
-            # Start a chat session to handle function calling
-            chat = self.model.start_chat(enable_automatic_function_calling=True)
+            # Retrieve or initialize chat history
+            if user_id not in self.chat_histories:
+                self.chat_histories[user_id] = self.model.start_chat(enable_automatic_function_calling=False)
+                # Send system prompt as the first message (or just keep it in mind, Gemini API handles history differently)
+                # For Gemini SDK, we usually set history in start_chat.
+                # Here we will just send the user input.
+                # To inject system prompt effectively with history, we might need to prepend it or use system_instruction if supported.
+                # For this simple implementation, let's just send the message.
             
-            # Construct System Prompt with Context
-            system_prompt = f"""
-            You are a helpful Coffee Shop Assistant.
+            chat = self.chat_histories[user_id]
             
-            {policy_str}
+            # We need to inject system prompt context every time or rely on the model remembering.
+            # A better way for per-turn context (like dynamic menu) is to include it in the user message,
+            # but hidden from the user? No, just prepend it to the prompt.
             
-            【Current Menu】
-            {menu_str}
+            full_prompt = f"{system_prompt}\n\nUser Input: {input_text}"
             
-            User Input: {input_text}
-            
-            Instructions:
-            1. Answer based on the Store Policy and Menu.
-            2. If the user wants to perform an action (Book, Order, Pay), call the appropriate function.
-            3. If the user is just chatting, reply conversationally.
-            4. If the user orders something not on the menu, politely inform them.
-            5. Always reply in the same language as the user's input (e.g., Traditional Chinese for Chinese input, English for English input).
-            6. If the user wants to modify a reservation, first use 'get_my_reservations' to show them what they have, then use 'modify_reservation' if they confirm.
-            """
-            
-            # Note: In a real app, we should use 'system_instruction' in model config, 
-            # but for per-turn context injection (like dynamic menu), putting it in the prompt is fine.
-            
-            # Let's try a different approach: Disable automatic execution and inspect the parts.
-            chat = self.model.start_chat(enable_automatic_function_calling=False)
-            response = await chat.send_message_async(system_prompt)
+            response = await chat.send_message_async(full_prompt)
             
             part = response.parts[0]
             
@@ -291,6 +310,9 @@ class ConversationAgent(BaseAgent):
 
         except Exception as e:
             logger.error(f"LLM Error: {e}")
+            # Reset history on error to avoid stuck state
+            if user_id in self.chat_histories:
+                del self.chat_histories[user_id]
             return "Sorry, I'm having trouble understanding. Please try again."
 
 # Singleton instance

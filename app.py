@@ -1,7 +1,7 @@
 import os
 import logging
 from fastapi import FastAPI, Request, HTTPException
-from linebot import LineBotApi, WebhookHandler
+from linebot import LineBotApi, WebhookParser
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from dotenv import load_dotenv
@@ -31,7 +31,7 @@ if not CHANNEL_SECRET or not CHANNEL_ACCESS_TOKEN:
     logger.warning("Line Channel Secret or Access Token not set. Webhook will not work.")
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN) if CHANNEL_ACCESS_TOKEN else None
-handler = WebhookHandler(CHANNEL_SECRET) if CHANNEL_SECRET else None
+parser = WebhookParser(CHANNEL_SECRET) if CHANNEL_SECRET else None
 
 @app.get("/")
 async def root():
@@ -50,40 +50,41 @@ async def callback(request: Request):
 
     # Handle webhook body
     try:
-        if handler:
-            import asyncio
-            await asyncio.to_thread(handler.handle, body_text, signature)
+        if parser:
+            events = parser.parse(body_text, signature)
+            for event in events:
+                if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
+                    await handle_message_async(event)
     except InvalidSignatureError:
         logger.error("Invalid signature. Please check your channel access token/channel secret.")
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     return "OK"
 
-# Event Handler
-if handler:
-    @handler.add(MessageEvent, message=TextMessage)
-    def handle_message(event):
-        user_id = event.source.user_id
-        user_message = event.message.text
-        
-        logger.info(f"Received message from {user_id}: {user_message}")
-        
-        # Integrate with Conversation Agent
-        from src.agents import conversation_agent
-        import asyncio
+async def handle_message_async(event):
+    user_id = event.source.user_id
+    user_message = event.message.text
+    
+    logger.info(f"Received message from {user_id}: {user_message}")
+    
+    # Integrate with Conversation Agent
+    from src.agents import conversation_agent
 
-        # Run async agent process in sync handler
-        # Note: In production, consider using async handler or background tasks
-        try:
-            response_text = asyncio.run(conversation_agent.process(user_message, context={"user_id": user_id}))
-        except Exception as e:
-            logger.error(f"Error processing message: {e}")
-            response_text = "Sorry, I encountered an error processing your request."
-        
+    try:
+        # Await the async process directly in the main loop
+        response_text = await conversation_agent.process(user_message, context={"user_id": user_id})
+    except Exception as e:
+        logger.error(f"Error processing message: {e}")
+        response_text = "Sorry, I encountered an error processing your request."
+    
+    # Reply using sync API (blocking, but acceptable for now)
+    try:
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=response_text)
         )
+    except Exception as e:
+        logger.error(f"Error sending reply: {e}")
 
 if __name__ == "__main__":
     import uvicorn
