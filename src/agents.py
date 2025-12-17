@@ -27,8 +27,44 @@ class ReservationQueryAgent(BaseAgent):
     """
     Agent responsible for checking table availability and creating reservations.
     """
-    def __init__(self):
+    def __init__(self, database=None):
         super().__init__("ReservationQueryAgent")
+        self.db = database if database else db
+
+    async def check_availability(self, date: str, time: str, pax: int):
+        """Check if a table is available."""
+        is_available = await self.db.check_availability(date, time, pax)
+        return "Table is available" if is_available else "Table is not available"
+
+    async def book_table(self, date: str, time: str, pax: int, name: str, phone: str, context: Dict[str, Any] = None):
+        """Book a table."""
+        user_id = context.get("user_id", "unknown")
+        reservation_id = await self.db.create_reservation(user_id, date, time, pax, name, phone)
+        return f"Reservation confirmed! ID: {reservation_id}"
+
+    async def get_my_reservations(self, include_past: bool = False, context: Dict[str, Any] = None):
+        """Get user's reservations."""
+        user_id = context.get("user_id", "unknown")
+        reservations = await self.db.get_user_reservations(user_id, include_past=include_past)
+        
+        if not reservations:
+            return "You have no reservations."
+        
+        return "\n".join([f"{r['date']} {r['time']} ({r['pax']} pax)" for r in reservations])
+
+    async def modify_reservation(self, reservation_id: str, new_date: str, new_time: str, context: Dict[str, Any] = None):
+        """Modify a reservation."""
+        user_id = context.get("user_id", "unknown")
+        result = await self.db.modify_reservation(reservation_id, new_date, new_time, user_id)
+        
+        if result == "success":
+            return "Reservation modified successfully."
+        elif result == "unavailable":
+            return "New time slot is unavailable."
+        elif result == "permission_denied":
+            return "Permission denied."
+        else:
+            return "Failed to modify reservation."
 
     async def process(self, input_text: str, context: Dict[str, Any] = None, language: str = "zh-TW") -> str:
         user_id = context.get("user_id", "unknown_user")
@@ -75,7 +111,7 @@ class ReservationQueryAgent(BaseAgent):
                 if len(parts) > 1 and parts[1] == "True":
                     include_past = True
             
-            reservations = await db.get_user_reservations(user_id, include_past=include_past)
+            reservations = await self.db.get_user_reservations(user_id, include_past=include_past)
             if not reservations:
                 return get_msg("no_reservations")
             
@@ -90,7 +126,7 @@ class ReservationQueryAgent(BaseAgent):
         if input_text.startswith("Modify|"):
             try:
                 _, res_id, new_date, new_time = input_text.split("|")
-                result = await db.modify_reservation(res_id, new_date, new_time, user_id)
+                result = await self.db.modify_reservation(res_id, new_date, new_time, user_id)
                 
                 if result == "success":
                     return get_msg("modify_success", res_id=res_id, new_date=new_date, new_time=new_time)
@@ -111,9 +147,9 @@ class ReservationQueryAgent(BaseAgent):
                 _, date, time, pax, name, phone = input_text.split("|")
                 pax = int(pax)
                 
-                is_available = await db.check_availability(date, time, pax)
+                is_available = await self.db.check_availability(date, time, pax)
                 if is_available:
-                    reservation_id = await db.create_reservation(user_id, date, time, pax, name, phone)
+                    reservation_id = await self.db.create_reservation(user_id, date, time, pax, name, phone)
                     return get_msg("book_success", name=name, reservation_id=reservation_id, date=date, time=time, pax=pax)
                 else:
                     return get_msg("book_unavailable")
@@ -129,14 +165,59 @@ class ReservationQueryAgent(BaseAgent):
             name = "Guest"
             phone = "Unknown"
             
-            is_available = await db.check_availability(date, time, pax)
+            is_available = await self.db.check_availability(date, time, pax)
             if is_available:
-                reservation_id = await db.create_reservation(user_id, date, time, pax, name, phone)
+                reservation_id = await self.db.create_reservation(user_id, date, time, pax, name, phone)
                 return get_msg("book_success", name=name, reservation_id=reservation_id, date=date, time=time, pax=pax)
             else:
                 return get_msg("book_unavailable")
-        else:
-            return get_msg("missing_info")
+        
+        # LLM Fallback
+        try:
+            # Send message to LLM
+            response = await self.chat.send_message_async(input_text)
+            
+            # Check for function call
+            if response.parts and response.parts[0].function_call:
+                fc = response.parts[0].function_call
+                func_name = fc.name
+                args = fc.args
+                
+                # Execute the function
+                if func_name == "book_table":
+                    return await self.book_table(
+                        date=args["date"],
+                        time=args["time"],
+                        pax=int(args["pax"]),
+                        name=args["name"],
+                        phone=args["phone"],
+                        context=context
+                    )
+                elif func_name == "get_my_reservations":
+                    return await self.get_my_reservations(
+                        include_past=args.get("include_past", False),
+                        context=context
+                    )
+                elif func_name == "modify_reservation":
+                    return await self.modify_reservation(
+                        reservation_id=args["reservation_id"],
+                        new_date=args["new_date"],
+                        new_time=args["new_time"],
+                        context=context
+                    )
+                elif func_name == "check_availability":
+                    return await self.check_availability(
+                        date=args["date"],
+                        time=args["time"],
+                        pax=int(args["pax"])
+                    )
+            
+            # Return text response if no function call
+            return response.text if response.text else get_msg("process_error")
+            
+        except Exception as e:
+            logger.error(f"LLM Error: {e}")
+            return get_msg("process_error")
 
 class OrderGenerationAgent(BaseAgent):
     """
@@ -275,9 +356,21 @@ class ConversationAgent(BaseAgent):
         # Store Policy
         policy_str = """
         【Store Policy】
-        1. Minimum charge: $200 per person.
-        2. Time limit: 1st Floor is limited to 90 minutes. 2nd and 3rd Floors have no time limit.
+        1. 1st Floor: Time limit 90 minutes. Minimum charge $200 per person.
+        2. 2nd Floor: No time limit (suitable for conversations). Minimum charge $200 per person.
         3. No outside food or drinks.
+        
+        【Seating Information】
+        1F:
+        - Bar counter: 2 seats
+        - 4-person table: 1
+        - 2-person table: 1
+        
+        2F:
+        - Restroom available
+        - 4-person table: 2
+        - Bar counter: 3 seats
+        - 6-person table: 1
         """
         
         # Get current date
