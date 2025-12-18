@@ -15,9 +15,14 @@ class Database:
 
     def _initialize_client(self):
         try:
+            db_name = os.getenv("FIRESTORE_DATABASE")
             if self.project_id:
-                self.client = firestore.Client(project=self.project_id)
-                logger.info(f"Firestore client initialized for project: {self.project_id}")
+                if db_name:
+                    self.client = firestore.Client(project=self.project_id, database=db_name)
+                    logger.info(f"Firestore client initialized for project: {self.project_id}, database: {db_name}")
+                else:
+                    self.client = firestore.Client(project=self.project_id)
+                    logger.info(f"Firestore client initialized for project: {self.project_id} (default database)")
             else:
                 logger.warning("GOOGLE_CLOUD_PROJECT not set. Firestore client not initialized.")
         except Exception as e:
