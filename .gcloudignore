@@ -1,0 +1,13 @@
+.gcloudignore
+.git
+.gitignore
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/
+app.log
+README.md
+run_tests.sh
+verify_data.py
+seed_menu.py
