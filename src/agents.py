@@ -33,6 +33,28 @@ class ReservationQueryAgent(BaseAgent):
 
     async def check_availability(self, date: str, time: str, pax: int):
         """Check if a table is available."""
+        # 1. Check Business Hours
+        from datetime import datetime
+        try:
+            dt = datetime.strptime(date, "%Y-%m-%d")
+            day_name = dt.strftime("%A") # e.g., "Monday"
+            
+            hours = await self.db.get_business_hours()
+            day_config = hours.get(day_name)
+            
+            if not day_config or day_config.get("closed"):
+                return False # Closed on this day
+            
+            open_time = day_config.get("open", "09:00")
+            close_time = day_config.get("close", "18:00")
+            
+            if not (open_time <= time <= close_time):
+                return False # Outside business hours
+                
+        except ValueError:
+            pass # Invalid date format, let DB handle or fail later
+
+        # 2. Check Table Availability
         is_available = await self.db.check_availability(date, time, pax)
         return "Table is available" if is_available else "Table is not available"
 
@@ -354,11 +376,23 @@ class ConversationAgent(BaseAgent):
         menu_str = "\n".join([f"- {item['name']} (${item['price']}): {item.get('category', 'General')}" for item in menu_items])
         
         # Store Policy
-        policy_str = """
+        # Fetch Business Hours
+        hours_config = await db.get_business_hours()
+        hours_str = "Business Hours:\n"
+        for day, config in hours_config.items():
+            if config.get("closed"):
+                hours_str += f"- {day}: Closed\n"
+            else:
+                hours_str += f"- {day}: {config.get('open')} - {config.get('close')}\n"
+
+        policy_str = f"""
         【Store Policy】
         1. 1st Floor: Time limit 90 minutes. Minimum charge $200 per person.
         2. 2nd Floor: No time limit (suitable for conversations). Minimum charge $200 per person.
         3. No outside food or drinks.
+        
+        【Business Hours】
+        {hours_str}
         
         【Seating Information】
         1F:
@@ -445,7 +479,15 @@ class ConversationAgent(BaseAgent):
                 
                 if func_name == "book_table":
                     command = f"Book|{args['date']}|{args['time']}|{int(args['pax'])}|{args['name']}|{args['phone']}"
-                    return await self.reservation_agent.process(command, context, language=current_lang)
+                    result = await self.reservation_agent.process(command, context, language=current_lang)
+                    
+                    # Send notification if successful
+                    if "ID:" in result:
+                         # Extract details for notification (simplified)
+                         from app import send_admin_notification
+                         await send_admin_notification(f"New Reservation!\n{args['name']} ({args['pax']} pax)\n{args['date']} {args['time']}")
+                    
+                    return result
                 
                 elif func_name == "get_my_reservations":
                     include_past = args.get("include_past", False)

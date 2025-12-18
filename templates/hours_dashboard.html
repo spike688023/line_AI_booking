@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coffee Shop Business Hours</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/picnic">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .nav-links {
+            margin-bottom: 20px;
+        }
+
+        .nav-links a {
+            margin-right: 15px;
+            text-decoration: none;
+            font-weight: bold;
+            color: #555;
+        }
+
+        .nav-links a.active {
+            color: #0074d9;
+            border-bottom: 2px solid #0074d9;
+        }
+
+        .day-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+
+        .day-label {
+            width: 120px;
+            font-weight: bold;
+        }
+
+        .time-input {
+            margin: 0 10px;
+        }
+
+        .closed-check {
+            margin-left: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="nav-links">
+            <a href="/admin/dashboard">Reservations</a>
+            <a href="/admin/menu">Menu Management</a>
+            <a href="/admin/hours" class="active">Business Hours</a>
+            <a href="/admin/notifications">Notifications</a>
+        </div>
+
+        <h1>🕒 Business Hours Settings</h1>
+
+        <form action="/admin/hours/update" method="post">
+            {% for day in days %}
+            <div class="day-row">
+                <div class="day-label">{{ day }}</div>
+                <input type="time" name="{{ day }}_open" value="{{ hours[day].open }}" class="time-input" {% if
+                    hours[day].closed %}disabled{% endif %}>
+                <span>to</span>
+                <input type="time" name="{{ day }}_close" value="{{ hours[day].close }}" class="time-input" {% if
+                    hours[day].closed %}disabled{% endif %}>
+
+                <label class="closed-check">
+                    <input type="checkbox" name="{{ day }}_closed" onchange="toggleInputs(this)" {% if hours[day].closed
+                        %}checked{% endif %}>
+                    <span class="checkable">Closed</span>
+                </label>
+            </div>
+            {% endfor %}
+
+            <button type="submit" class="success" style="width: 100%; margin-top: 20px;">Save Settings</button>
+        </form>
+    </div>
+
+    <script>
+        function toggleInputs(checkbox) {
+            const row = checkbox.closest('.day-row');
+            const inputs = row.querySelectorAll('input[type="time"]');
+            inputs.forEach(input => {
+                input.disabled = checkbox.checked;
+            });
+        }
+    </script>
+</body>
+
+</html>

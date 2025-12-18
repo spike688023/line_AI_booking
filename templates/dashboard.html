@@ -81,6 +81,16 @@
 
 <body>
     <div class="container">
+        <div class="nav-links" style="margin-bottom: 20px;">
+            <a href="/admin/dashboard"
+                style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #0074d9; border-bottom: 2px solid #0074d9;">Reservations</a>
+            <a href="/admin/menu"
+                style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Menu Management</a>
+            <a href="/admin/hours"
+                style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Business Hours</a>
+            <a href="/admin/notifications"
+                style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Notifications</a>
+        </div>
         <div
             style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; margin-bottom: 20px; padding-bottom: 10px;">
             <h1 style="border: none; margin: 0;">☕ Reservation Management</h1>
@@ -125,10 +135,6 @@
                     <td class="actions">
                         <button class="pseudo"
                             onclick="openEditModal('{{ res.id }}', '{{ res.date }}', '{{ res.time }}')">Edit</button>
-                        <form action="/admin/delete/{{ res.id }}" method="post"
-                            onsubmit="return confirm('Are you sure?');" style="display:inline;">
-                            <button class="error pseudo">Delete</button>
-                        </form>
                     </td>
                 </tr>
                 {% endfor %}

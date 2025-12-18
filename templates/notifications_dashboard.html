@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coffee Shop Notification Settings</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/picnic">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .nav-links {
+            margin-bottom: 20px;
+        }
+
+        .nav-links a {
+            margin-right: 15px;
+            text-decoration: none;
+            font-weight: bold;
+            color: #555;
+        }
+
+        .nav-links a.active {
+            color: #0074d9;
+            border-bottom: 2px solid #0074d9;
+        }
+
+        .id-list {
+            margin-bottom: 20px;
+        }
+
+        .id-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .id-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="nav-links">
+            <a href="/admin/dashboard">Reservations</a>
+            <a href="/admin/menu">Menu Management</a>
+            <a href="/admin/hours">Business Hours</a>
+            <a href="/admin/notifications" class="active">Notifications</a>
+        </div>
+
+        <h1>🔔 Notification Settings</h1>
+
+        <p>Manage LINE User IDs that will receive reservation notifications.</p>
+
+        <div class="id-list">
+            {% if admin_ids %}
+            {% for aid in admin_ids %}
+            <div class="id-item">
+                <span>{{ aid }}</span>
+                <form action="/admin/notifications/remove" method="post" style="margin:0;">
+                    <input type="hidden" name="user_id" value="{{ aid }}">
+                    <button class="error pseudo">Remove</button>
+                </form>
+            </div>
+            {% endfor %}
+            {% else %}
+            <p style="color: #888; text-align: center;">No admin IDs configured.</p>
+            {% endif %}
+        </div>
+
+        <hr>
+
+        <h3>Add New User ID</h3>
+        <form action="/admin/notifications/add" method="post" style="display: flex; gap: 10px;">
+            <input type="text" name="user_id" placeholder="Enter LINE User ID (U...)" required style="flex-grow: 1;">
+            <button type="submit" class="success">Add</button>
+        </form>
+
+        <div style="margin-top: 20px; background: #eef; padding: 10px; border-radius: 4px; font-size: 0.9em;">
+            <strong>How to get User ID?</strong><br>
+            Ask the user to send the message <code>id</code> to the Coffee Shop Line Bot. The bot will reply with their
+            User ID.
+        </div>
+    </div>
+</body>
+
+</html>

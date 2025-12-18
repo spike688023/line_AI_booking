@@ -286,33 +286,128 @@ class Database:
             logger.error(f"Failed to fetch menu: {e}")
             return []
 
-    async def seed_menu(self):
+    async def add_menu_item(self, name: str, price: int, category: str, description: str = "") -> str:
         """
-        Populate the menu with initial data if empty.
+        Add a new item to the menu.
         """
         if not self.client:
-            return
+            return "mock-id"
 
         try:
-            menu_ref = self.client.collection("menu")
-            # Check if empty
-            if len(list(menu_ref.limit(1).stream())) > 0:
-                logger.info("Menu already exists. Skipping seed.")
-                return
-
-            initial_menu = [
-                {"name": "Americano", "price": 80, "category": "Coffee", "description": "Classic black coffee"},
-                {"name": "Latte", "price": 120, "category": "Coffee", "description": "Espresso with steamed milk"},
-                {"name": "Cappuccino", "price": 120, "category": "Coffee", "description": "Espresso with foam"},
-                {"name": "Cheese Cake", "price": 120, "category": "Cake", "description": "Rich and creamy"},
-                {"name": "Chocolate Cake", "price": 140, "category": "Cake", "description": "Dark chocolate delight"}
-            ]
-
-            for item in initial_menu:
-                menu_ref.add(item)
-            logger.info("Menu seeded successfully.")
+            menu_ref = self.client.collection("menu").document()
+            item_data = {
+                "name": name,
+                "price": price,
+                "category": category,
+                "description": description,
+                "created_at": firestore.SERVER_TIMESTAMP
+            }
+            menu_ref.set(item_data)
+            logger.info(f"Menu item added: {name}")
+            return menu_ref.id
         except Exception as e:
-            logger.error(f"Failed to seed menu: {e}")
+            logger.error(f"Failed to add menu item: {e}")
+            return None
+
+    async def update_menu_item(self, item_id: str, data: Dict[str, Any]) -> bool:
+        """
+        Update an existing menu item.
+        """
+        if not self.client:
+            return False
+
+        try:
+            menu_ref = self.client.collection("menu").document(item_id)
+            menu_ref.update(data)
+            logger.info(f"Menu item updated: {item_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update menu item: {e}")
+            return False
+
+    async def delete_menu_item(self, item_id: str) -> bool:
+        """
+        Delete a menu item.
+        """
+        if not self.client:
+            return False
+
+        try:
+            self.client.collection("menu").document(item_id).delete()
+            logger.info(f"Menu item deleted: {item_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete menu item: {e}")
+            return False
+
+    async def get_business_hours(self) -> Dict[str, Any]:
+        """
+        Get business hours configuration.
+        """
+        if not self.client:
+            # Default mock hours
+            return {
+                "Monday": {"open": "09:00", "close": "18:00", "closed": False},
+                "Tuesday": {"open": "09:00", "close": "18:00", "closed": False},
+                "Wednesday": {"open": "09:00", "close": "18:00", "closed": False},
+                "Thursday": {"open": "09:00", "close": "18:00", "closed": False},
+                "Friday": {"open": "09:00", "close": "18:00", "closed": False},
+                "Saturday": {"open": "10:00", "close": "20:00", "closed": False},
+                "Sunday": {"open": "10:00", "close": "20:00", "closed": False}
+            }
+
+        try:
+            doc = self.client.collection("config").document("business_hours").get()
+            if doc.exists:
+                return doc.to_dict()
+            else:
+                # Initialize with defaults if not exists
+                default_hours = {
+                    "Monday": {"open": "09:00", "close": "18:00", "closed": False},
+                    "Tuesday": {"open": "09:00", "close": "18:00", "closed": False},
+                    "Wednesday": {"open": "09:00", "close": "18:00", "closed": False},
+                    "Thursday": {"open": "09:00", "close": "18:00", "closed": False},
+                    "Friday": {"open": "09:00", "close": "18:00", "closed": False},
+                    "Saturday": {"open": "10:00", "close": "20:00", "closed": False},
+                    "Sunday": {"open": "10:00", "close": "20:00", "closed": False}
+                }
+                self.client.collection("config").document("business_hours").set(default_hours)
+                return default_hours
+        except Exception as e:
+            logger.error(f"Failed to get business hours: {e}")
+            return {}
+
+    async def get_notification_settings(self) -> Dict[str, Any]:
+        """
+        Get notification settings (admin IDs).
+        """
+        if not self.client:
+            return {"admin_ids": []}
+
+        try:
+            doc = self.client.collection("config").document("notifications").get()
+            if doc.exists:
+                return doc.to_dict()
+            else:
+                return {"admin_ids": []}
+        except Exception as e:
+            logger.error(f"Failed to get notification settings: {e}")
+            return {"admin_ids": []}
+
+    async def update_notification_settings(self, admin_ids: List[str]) -> bool:
+        """
+        Update notification settings.
+        """
+        if not self.client:
+            return False
+
+        try:
+            self.client.collection("config").document("notifications").set({"admin_ids": admin_ids})
+            logger.info(f"Notification settings updated: {len(admin_ids)} admins.")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update notification settings: {e}")
+            return False
 
 # Singleton instance
 db = Database()

@@ -43,6 +43,43 @@ if not CHANNEL_SECRET or not CHANNEL_ACCESS_TOKEN:
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN) if CHANNEL_ACCESS_TOKEN else None
 parser = WebhookParser(CHANNEL_SECRET) if CHANNEL_SECRET else None
 
+# Admin Line User IDs (For notifications)
+# We now use DB for this, but keep env as fallback or initial seed
+ENV_ADMIN_IDS = os.getenv("ADMIN_LINE_USER_ID", "")
+
+async def get_admin_ids():
+    """Helper to get admin IDs from DB, falling back to env."""
+    settings = await db.get_notification_settings()
+    db_ids = settings.get("admin_ids", [])
+    
+    # Also include env IDs if not empty
+    env_ids = [aid.strip() for aid in ENV_ADMIN_IDS.split(",") if aid.strip()]
+    
+    # Combine unique IDs
+    return list(set(db_ids + env_ids))
+
+async def send_admin_notification(message: str):
+    """Send a push message to all admins."""
+    if not line_bot_api:
+        logger.warning("Cannot send admin notification: Line Bot API not initialized.")
+        return
+    
+    admin_ids = await get_admin_ids()
+    
+    if not admin_ids:
+        logger.warning("Cannot send admin notification: No admin IDs found.")
+        return
+
+    try:
+        # Multicast is more efficient for sending to multiple users
+        line_bot_api.multicast(
+            admin_ids,
+            TextSendMessage(text=f"🔔 [New Notification]\n{message}")
+        )
+        logger.info(f"Admin notification sent to {len(admin_ids)} admins.")
+    except Exception as e:
+        logger.error(f"Failed to send admin notification: {e}")
+
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Coffee Shop Agent is running"}
@@ -105,6 +142,128 @@ async def update_reservation(reservation_id: str, request: Request, new_date: st
     await db.modify_reservation(reservation_id, new_date, new_time, user_id="admin", is_admin=True)
     return RedirectResponse(url="/admin/dashboard", status_code=303)
 
+# --- Menu Management Routes ---
+
+@app.get("/admin/menu", response_class=HTMLResponse)
+async def menu_dashboard(request: Request):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    menu_items = await db.get_menu()
+    return templates.TemplateResponse("menu_dashboard.html", {
+        "request": request,
+        "menu_items": menu_items
+    })
+
+@app.post("/admin/menu/add")
+async def add_menu_item(request: Request, name: str = Form(...), price: int = Form(...), category: str = Form(...), description: str = Form("")):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    await db.add_menu_item(name, price, category, description)
+    return RedirectResponse(url="/admin/menu", status_code=303)
+
+@app.post("/admin/menu/update/{item_id}")
+async def update_menu_item(item_id: str, request: Request, name: str = Form(...), price: int = Form(...), category: str = Form(...), description: str = Form("")):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    data = {
+        "name": name,
+        "price": price,
+        "category": category,
+        "description": description
+    }
+    await db.update_menu_item(item_id, data)
+    return RedirectResponse(url="/admin/menu", status_code=303)
+
+@app.post("/admin/menu/delete/{item_id}")
+async def delete_menu_item(item_id: str, request: Request):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    await db.delete_menu_item(item_id)
+    return RedirectResponse(url="/admin/menu", status_code=303)
+
+# --- Business Hours Routes ---
+
+@app.get("/admin/hours", response_class=HTMLResponse)
+async def hours_dashboard(request: Request):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    hours = await db.get_business_hours()
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    
+    return templates.TemplateResponse("hours_dashboard.html", {
+        "request": request,
+        "hours": hours,
+        "days": days
+    })
+
+@app.post("/admin/hours/update")
+async def update_hours(request: Request):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    form_data = await request.form()
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    new_hours = {}
+    
+    for day in days:
+        is_closed = form_data.get(f"{day}_closed") == "on"
+        new_hours[day] = {
+            "open": form_data.get(f"{day}_open"),
+            "close": form_data.get(f"{day}_close"),
+            "closed": is_closed
+        }
+    
+    await db.update_business_hours(new_hours)
+    return RedirectResponse(url="/admin/hours", status_code=303)
+
+# --- Notification Settings Routes ---
+
+@app.get("/admin/notifications", response_class=HTMLResponse)
+async def notifications_dashboard(request: Request):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    settings = await db.get_notification_settings()
+    admin_ids = settings.get("admin_ids", [])
+    
+    return templates.TemplateResponse("notifications_dashboard.html", {
+        "request": request,
+        "admin_ids": admin_ids
+    })
+
+@app.post("/admin/notifications/add")
+async def add_notification_id(request: Request, user_id: str = Form(...)):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    settings = await db.get_notification_settings()
+    admin_ids = settings.get("admin_ids", [])
+    
+    if user_id and user_id not in admin_ids:
+        admin_ids.append(user_id.strip())
+        await db.update_notification_settings(admin_ids)
+    
+    return RedirectResponse(url="/admin/notifications", status_code=303)
+
+@app.post("/admin/notifications/remove")
+async def remove_notification_id(request: Request, user_id: str = Form(...)):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    
+    settings = await db.get_notification_settings()
+    admin_ids = settings.get("admin_ids", [])
+    
+    if user_id in admin_ids:
+        admin_ids.remove(user_id)
+        await db.update_notification_settings(admin_ids)
+    
+    return RedirectResponse(url="/admin/notifications", status_code=303)
+
 # --- Webhook Routes ---
 
 @app.post("/callback")
@@ -136,6 +295,17 @@ async def handle_message_async(event):
     user_message = event.message.text
     
     logger.info(f"Received message from {user_id}: {user_message}")
+
+    # Helper command to get User ID
+    if user_message.strip().lower() == "id":
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"Your User ID is:\n{user_id}")
+            )
+        except Exception as e:
+            logger.error(f"Error sending reply: {e}")
+        return
     
     # Integrate with Conversation Agent
     from src.agents import conversation_agent
