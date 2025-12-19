@@ -33,8 +33,13 @@ class ReservationQueryAgent(BaseAgent):
 
     async def check_availability(self, date: str, time: str, pax: int):
         """Check if a table is available."""
-        # 1. Check Business Hours
+        # 1. Check if the date is in the past
         from datetime import datetime
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        if date < current_date:
+            return "Error: Cannot book for a past date."
+
+        # 2. Check Business Hours
         try:
             dt = datetime.strptime(date, "%Y-%m-%d")
             day_name = dt.strftime("%A") # e.g., "Monday"
@@ -60,6 +65,12 @@ class ReservationQueryAgent(BaseAgent):
 
     async def book_table(self, date: str, time: str, pax: int, name: str, phone: str, context: Dict[str, Any] = None):
         """Book a table."""
+        # Check if the date is in the past
+        from datetime import datetime
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        if date < current_date:
+            return "Error: Cannot book for a past date."
+            
         user_id = context.get("user_id", "unknown")
         reservation_id = await self.db.create_reservation(user_id, date, time, pax, name, phone)
         return f"Reservation confirmed! ID: {reservation_id}"
@@ -422,14 +433,15 @@ class ConversationAgent(BaseAgent):
         {menu_str}
         
         Instructions:
-        1. **Language Consistency**: ALWAYS reply in the SAME language as the user's latest input. If they speak Traditional Chinese, you MUST speak Traditional Chinese.
-        2. **Conversational Flow**:
+        1. Language Consistency: ALWAYS reply in the SAME language as the user's latest input. If they speak Traditional Chinese, you MUST speak Traditional Chinese.
+        2. Date Validation: DO NOT accept reservations for dates before {current_date}. If a user asks for a past date, politely explain that we can only take future bookings.
+        3. Conversational Flow:
            - If the user says "No" or "Nothing else" (e.g., "沒有了", "沒問題"), politely close the conversation (e.g., "Great! Looking forward to seeing you.", "好的，期待您的光臨！") without asking "Is there anything else?".
            - Only ask "Is there anything else?" if the user's intent is unclear or after completing a task.
-        3. **Actions**:
+        4. Actions:
            - If the user wants to Book, Order, or Pay, call the appropriate function.
            - If information is missing (e.g. phone number for booking), ASK for it politely.
-        4. **Modifications**:
+        5. Modifications:
            - If the user wants to modify a reservation, first use 'get_my_reservations' to show them what they have, then use 'modify_reservation' if they confirm.
         """
 
