@@ -72,8 +72,29 @@ class ReservationQueryAgent(BaseAgent):
             return "Error: Cannot book for a past date."
             
         user_id = context.get("user_id", "unknown")
-        reservation_id = await self.db.create_reservation(user_id, date, time, pax, name, phone)
-        return f"Reservation confirmed! ID: {reservation_id}"
+        result = await self.db.create_reservation(user_id, date, time, pax, name, phone)
+        
+        if result == "overbooked":
+            return "Sorry, that time slot is now full. Please choose another time."
+        elif not result:
+            return "Sorry, something went wrong with the reservation. Please try again later."
+            
+        # Parse result (format: "reservation_id|table_id")
+        res_id, table_id = result.split("|")
+        
+        # Construct a nice Chinese confirmation message
+        message = (
+            f"🎉 預約成功！\n\n"
+            f"📅 日期：{date}\n"
+            f"⏰ 抵達時間：{time}\n"
+            f"👥 人數：{pax} 位\n"
+            f"📍 安排桌號：{table_id}\n"
+            f"🆔 訂單編號：{res_id}\n\n"
+            f"🗺️ 查看座位位置：\n"
+            f"https://coffee-shop-agent-416902381938.asia-east1.run.app/seating-map?date={date}\n\n"
+            f"💡 溫馨提示：本店不限用餐時間。若該桌位較大，可能會與其他客人共享桌位，感謝您的理解！"
+        )
+        return message
 
     async def get_my_reservations(self, include_past: bool = False, context: Dict[str, Any] = None):
         """Get user's reservations."""

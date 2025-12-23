@@ -30,6 +30,26 @@ app = FastAPI()
 # Initialize Templates
 templates = Jinja2Templates(directory="templates")
 
+# Mount Static Files
+from fastapi.staticfiles import StaticFiles
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+from datetime import datetime
+
+@app.get("/seating-map", response_class=HTMLResponse)
+async def seating_map(request: Request, date: str = None):
+    # Default to today if not provided
+    if not date:
+        date = datetime.now().strftime("%Y-%m-%d")
+        
+    occupied_tables = await db.get_daily_occupied_tables(date)
+    
+    return templates.TemplateResponse("seating_map.html", {
+        "request": request,
+        "date": date,
+        "occupied_tables": occupied_tables
+    })
+
 # Admin Configuration
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123") # Default password
 

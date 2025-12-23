@@ -28,29 +28,112 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to initialize Firestore client: {e}")
 
-    async def check_availability(self, date: str, time: str, pax: int) -> bool:
+    TOTAL_CAPACITY = 40  # Updated total capacity based on new layout
+
+    # Table Configuration based on IMG_6126 (2F) and IMG_6127 (3F)
+    TABLE_CONFIG = {
+        # --- 2nd Floor ---
+        "2F-B1": {"capacity": 6, "floor": 2},
+        "2F-A1": {"capacity": 2, "floor": 2},
+        "2F-A2": {"capacity": 2, "floor": 2},
+        "2F-A3": {"capacity": 2, "floor": 2},
+        "2F-A4": {"capacity": 2, "floor": 2},
+        "2F-C1": {"capacity": 4, "floor": 2},
+        "2F-D1": {"capacity": 4, "floor": 2},
+        
+        # --- 3rd Floor ---
+        "3F-F1": {"capacity": 6, "floor": 3},
+        "3F-E1": {"capacity": 2, "floor": 3},
+        "3F-E2": {"capacity": 2, "floor": 3},
+        "3F-E3": {"capacity": 2, "floor": 3},
+        "3F-E4": {"capacity": 2, "floor": 3},
+        "3F-G1": {"capacity": 4, "floor": 3},
+        "3F-H1": {"capacity": 4, "floor": 3},
+        "3F-I1": {"capacity": 4, "floor": 3},
+    }
+
+    async def get_daily_occupied_tables(self, date: str) -> Dict[str, Any]:
         """
-        Check if a table is available for the given date, time, and pax.
-        This is a simplified logic. In a real app, you'd check against total capacity.
+        Get detailed occupancy for each table on a given date.
+        Returns: { "table_id": {"booked_pax": X, "bookings": [{"name": "...", "pax": Y}, ...]} }
         """
         if not self.client:
-            logger.warning("Firestore client not available. Returning mock availability.")
+            return {}
+
+        try:
+            slot_ref = self.client.collection("daily_slots").document(date)
+            snapshot = slot_ref.get()
+            
+            if snapshot.exists:
+                return snapshot.to_dict().get("occupancy", {})
+            return {}
+        except Exception as e:
+            logger.error(f"Error fetching daily table occupancy: {e}")
+            return {}
+
+    async def check_availability(self, date: str, time: str, pax: int) -> bool:
+        """
+        Check if any table has enough REMAINING capacity for the given pax.
+        """
+        if not self.client:
             return True
 
-        # Example: Check if total reservations for that slot < capacity
-        # For now, just return True
-        return True
+        try:
+            occupancy = await self.get_daily_occupied_tables(date)
+            
+            for table_id, config in self.TABLE_CONFIG.items():
+                table_data = occupancy.get(table_id, {"booked_pax": 0})
+                remaining = config["capacity"] - table_data["booked_pax"]
+                if remaining >= pax:
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking availability: {e}")
+            return False
 
     async def create_reservation(self, user_id: str, date: str, time: str, pax: int, name: str, phone: str) -> str:
         """
-        Create a new reservation.
+        Create a reservation and allocate seats on a table (supports shared tables).
         """
         if not self.client:
-            logger.warning("Firestore client not available. Returning mock reservation ID.")
             return "mock-reservation-id"
 
-        try:
-            reservation_ref = self.client.collection("reservations").document()
+        transaction = self.client.transaction()
+        reservation_ref = self.client.collection("reservations").document()
+        slot_ref = self.client.collection("daily_slots").document(date)
+
+        @firestore.transactional
+        def create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone):
+            # 1. Get current occupancy for the day
+            snapshot = slot_ref.get(transaction=transaction)
+            occupancy = {}
+            if snapshot.exists:
+                occupancy = snapshot.to_dict().get("occupancy", {})
+            
+            # 2. Find the best table with enough REMAINING capacity
+            best_table = None
+            min_remaining_after = float('inf')
+            
+            # Sort tables by capacity to be efficient
+            table_items = sorted(self.TABLE_CONFIG.items(), key=lambda x: x[1]["capacity"])
+            
+            for table_id, config in table_items:
+                table_data = occupancy.get(table_id, {"booked_pax": 0})
+                remaining = config["capacity"] - table_data["booked_pax"]
+                
+                if remaining >= pax:
+                    # We want the table that will be "most full" after this booking (Strategy: Compactness)
+                    remaining_after = remaining - pax
+                    if remaining_after < min_remaining_after:
+                        min_remaining_after = remaining_after
+                        best_table = table_id
+                    if remaining_after == 0: break # Perfect fill
+            
+            if not best_table:
+                raise Exception("overbooked")
+
+            # 3. Create the reservation
             reservation_data = {
                 "user_id": user_id,
                 "name": name,
@@ -58,14 +141,35 @@ class Database:
                 "date": date,
                 "time": time,
                 "pax": pax,
+                "table_id": best_table,
                 "status": "confirmed",
                 "created_at": firestore.SERVER_TIMESTAMP
             }
-            reservation_ref.set(reservation_data)
-            logger.info(f"Reservation created: {reservation_ref.id}")
-            return reservation_ref.id
+            transaction.set(reservation_ref, reservation_data)
+            
+            # 4. Update daily occupancy mapping
+            if best_table not in occupancy:
+                occupancy[best_table] = {"booked_pax": 0, "bookings": []}
+            
+            occupancy[best_table]["booked_pax"] += pax
+            occupancy[best_table]["bookings"].append({
+                "res_id": reservation_ref.id,
+                "name": name,
+                "pax": pax,
+                "time": time
+            })
+            
+            transaction.set(slot_ref, {"occupancy": occupancy}, merge=True)
+            
+            return f"{reservation_ref.id}|{best_table}"
+
+        try:
+            result = create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone)
+            return result
         except Exception as e:
-            logger.error(f"Failed to create reservation: {e}")
+            if "overbooked" in str(e):
+                return "overbooked"
+            logger.error(f"Transaction failed: {e}")
             return None
 
     async def get_user_reservations(self, user_id: str, include_past: bool = False) -> List[Dict[str, Any]]:
@@ -178,60 +282,161 @@ class Database:
 
     async def delete_reservation(self, reservation_id: str) -> bool:
         """
-        Delete a reservation by ID.
+        Delete a reservation by ID and update slot occupancy using a transaction.
         """
         if not self.client:
             return False
             
-        try:
-            self.client.collection("reservations").document(reservation_id).delete()
-            logger.info(f"Reservation deleted: {reservation_id}")
+        transaction = self.client.transaction()
+        reservation_ref = self.client.collection("reservations").document(reservation_id)
+
+        @firestore.transactional
+        def delete_in_transaction(transaction, reservation_ref):
+            snapshot = reservation_ref.get(transaction=transaction)
+            if not snapshot.exists:
+                return False
+            
+            data = snapshot.to_dict()
+            date = data.get("date")
+            time = data.get("time")
+            pax = data.get("pax", 0)
+            table_id = data.get("table_id")
+            
+            # 1. Delete reservation
+            transaction.delete(reservation_ref)
+            
+            # 2. Update slot occupancy
+            if date and time:
+                slot_id = f"{date}_{time}"
+                slot_ref = self.client.collection("slots").document(slot_id)
+                slot_snapshot = slot_ref.get(transaction=transaction)
+                if slot_snapshot.exists:
+                    slot_data = slot_snapshot.to_dict()
+                    current_booked = slot_data.get("booked_pax", 0)
+                    booked_tables = slot_data.get("tables", [])
+                    
+                    new_booked = max(0, current_booked - pax)
+                    if table_id in booked_tables:
+                        booked_tables.remove(table_id)
+                    
+                    transaction.set(slot_ref, {
+                        "booked_pax": new_booked,
+                        "tables": booked_tables
+                    }, merge=True)
+            
             return True
+
+        try:
+            if delete_in_transaction(transaction, reservation_ref):
+                logger.info(f"Reservation deleted: {reservation_id}")
+                return True
+            return False
         except Exception as e:
-            logger.error(f"Failed to delete reservation: {e}")
+            logger.error(f"Failed to delete reservation in transaction: {e}")
             return False
 
     async def modify_reservation(self, reservation_id: str, new_date: str, new_time: str, user_id: str, is_admin: bool = False) -> str:
         """
-        Modify an existing reservation. Checks availability and ownership first.
+        Modify an existing reservation using a transaction to ensure capacity limits.
         Returns: "success", "unavailable", "not_found", "permission_denied", or "error"
         """
         if not self.client:
             return "error"
 
-        try:
-            reservation_ref = self.client.collection("reservations").document(reservation_id)
-            doc = reservation_ref.get()
-            
-            if not doc.exists:
+        transaction = self.client.transaction()
+        reservation_ref = self.client.collection("reservations").document(reservation_id)
+
+        @firestore.transactional
+        def modify_in_transaction(transaction, reservation_ref, new_date, new_time, user_id, is_admin):
+            snapshot = reservation_ref.get(transaction=transaction)
+            if not snapshot.exists:
                 return "not_found"
             
-            data = doc.to_dict()
-            
-            # Ownership Check (Skip if admin)
+            data = snapshot.to_dict()
             if not is_admin and data.get("user_id") != user_id:
-                logger.warning(f"Unauthorized modification attempt by {user_id} on {reservation_id}")
                 return "permission_denied"
             
+            old_date = data.get("date")
+            old_time = data.get("time")
             pax = data.get("pax", 0)
+            old_table_id = data.get("table_id")
+
+            # If moving within the same slot, just update timestamp
+            if old_date == new_date and old_time == new_time:
+                transaction.update(reservation_ref, {"updated_at": firestore.SERVER_TIMESTAMP})
+                return "success"
+
+            # 1. Allocate new table in new slot
+            new_slot_id = f"{new_date}_{new_time}"
+            new_slot_ref = self.client.collection("slots").document(new_slot_id)
+            new_slot_snapshot = new_slot_ref.get(transaction=transaction)
             
-            # Check availability for new slot
-            # Note: Admin might want to force overbook, but for now let's keep availability check
-            is_available = await self.check_availability(new_date, new_time, pax)
-            if not is_available:
+            new_booked_tables = []
+            new_booked_pax = 0
+            if new_slot_snapshot.exists:
+                new_slot_data = new_slot_snapshot.to_dict()
+                new_booked_tables = new_slot_data.get("tables", [])
+                new_booked_pax = new_slot_data.get("booked_pax", 0)
+            
+            # Find best table in new slot
+            new_table_id = None
+            min_diff = float('inf')
+            available_tables = sorted(
+                [(tid, conf) for tid, conf in self.TABLE_CONFIG.items() if tid not in new_booked_tables],
+                key=lambda x: x[1]["capacity"]
+            )
+            for tid, conf in available_tables:
+                if conf["capacity"] >= pax:
+                    diff = conf["capacity"] - pax
+                    if diff < min_diff:
+                        min_diff = diff
+                        new_table_id = tid
+                    if diff == 0: break
+            
+            if not new_table_id:
                 return "unavailable"
-            
-            # Update reservation
-            reservation_ref.update({
+
+            # 2. Update reservation
+            transaction.update(reservation_ref, {
                 "date": new_date,
                 "time": new_time,
+                "table_id": new_table_id,
                 "updated_at": firestore.SERVER_TIMESTAMP
             })
-            logger.info(f"Reservation modified: {reservation_id} -> {new_date} {new_time}")
+
+            # 3. Update new slot occupancy
+            new_booked_tables.append(new_table_id)
+            transaction.set(new_slot_ref, {
+                "booked_pax": new_booked_pax + pax,
+                "tables": new_booked_tables
+            }, merge=True)
+
+            # 4. Update old slot occupancy (release old table)
+            old_slot_id = f"{old_date}_{old_time}"
+            old_slot_ref = self.client.collection("slots").document(old_slot_id)
+            old_slot_snapshot = old_slot_ref.get(transaction=transaction)
+            if old_slot_snapshot.exists:
+                old_slot_data = old_slot_snapshot.to_dict()
+                old_booked_pax = old_slot_data.get("booked_pax", 0)
+                old_booked_tables = old_slot_data.get("tables", [])
+                
+                if old_table_id in old_booked_tables:
+                    old_booked_tables.remove(old_table_id)
+                
+                transaction.set(old_slot_ref, {
+                    "booked_pax": max(0, old_booked_pax - pax),
+                    "tables": old_booked_tables
+                }, merge=True)
+
             return "success"
-            
+
+        try:
+            result = modify_in_transaction(transaction, reservation_ref, new_date, new_time, user_id, is_admin)
+            if result == "success":
+                logger.info(f"Reservation modified: {reservation_id} -> {new_date} {new_time}")
+            return result
         except Exception as e:
-            logger.error(f"Failed to modify reservation: {e}")
+            logger.error(f"Failed to modify reservation in transaction: {e}")
             return "error"
 
     async def get_reservation(self, reservation_id: str) -> Optional[Dict[str, Any]]:
