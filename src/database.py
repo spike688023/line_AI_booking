@@ -151,6 +151,10 @@ class Database:
             if best_table not in occupancy:
                 occupancy[best_table] = {"booked_pax": 0, "bookings": []}
             
+            # Ensure 'bookings' key exists (for backward compatibility or partial data)
+            if "bookings" not in occupancy[best_table]:
+                occupancy[best_table]["bookings"] = []
+                
             occupancy[best_table]["booked_pax"] += pax
             occupancy[best_table]["bookings"].append({
                 "res_id": reservation_ref.id,
