@@ -34,19 +34,19 @@ class Database:
     TABLE_CONFIG = {
         # --- 2nd Floor ---
         "2F-B1": {"capacity": 6, "floor": 2},
-        "2F-A1": {"capacity": 2, "floor": 2},
-        "2F-A2": {"capacity": 2, "floor": 2},
-        "2F-A3": {"capacity": 2, "floor": 2},
-        "2F-A4": {"capacity": 2, "floor": 2},
+        "2F-A1": {"capacity": 1, "floor": 2},
+        "2F-A2": {"capacity": 1, "floor": 2},
+        "2F-A3": {"capacity": 1, "floor": 2},
+        "2F-A4": {"capacity": 1, "floor": 2},
         "2F-C1": {"capacity": 4, "floor": 2},
         "2F-D1": {"capacity": 4, "floor": 2},
         
         # --- 3rd Floor ---
         "3F-F1": {"capacity": 6, "floor": 3},
-        "3F-E1": {"capacity": 2, "floor": 3},
-        "3F-E2": {"capacity": 2, "floor": 3},
-        "3F-E3": {"capacity": 2, "floor": 3},
-        "3F-E4": {"capacity": 2, "floor": 3},
+        "3F-E1": {"capacity": 1, "floor": 3},
+        "3F-E2": {"capacity": 1, "floor": 3},
+        "3F-E3": {"capacity": 1, "floor": 3},
+        "3F-E4": {"capacity": 1, "floor": 3},
         "3F-G1": {"capacity": 4, "floor": 3},
         "3F-H1": {"capacity": 4, "floor": 3},
         "3F-I1": {"capacity": 4, "floor": 3},

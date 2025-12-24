@@ -66,15 +66,61 @@
             display: block;
         }
 
+        .map-wrapper {
+            width: 100%;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
         .floor-plan {
             position: relative;
-            width: 100%;
-            max-width: 550px;
+            width: 550px;
             height: 600px;
-            margin: 0 auto;
+            flex-shrink: 0;
             background-color: #fff;
             border: 2px solid #ddd;
             border-radius: 8px;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+
+            .container {
+                padding: 15px;
+            }
+
+            .map-wrapper {
+                min-height: 450px;
+            }
+
+            .floor-plan {
+                transform: scale(0.75);
+                transform-origin: top center;
+            }
+        }
+
+        @media (max-width: 450px) {
+            .map-wrapper {
+                min-height: 380px;
+            }
+
+            .floor-plan {
+                transform: scale(0.62);
+            }
+        }
+
+        @media (max-width: 380px) {
+            .map-wrapper {
+                min-height: 320px;
+            }
+
+            .floor-plan {
+                transform: scale(0.52);
+            }
         }
 
         .table {
@@ -98,6 +144,11 @@
             border-color: #3498db;
             color: #3498db;
             z-index: 10;
+        }
+
+        .t-1p {
+            width: 50px;
+            height: 50px;
         }
 
         .t-2p {
@@ -314,152 +365,159 @@
 
         <!-- 2F Map -->
         <div id="2F" class="tab-content active">
-            <div class="floor-plan">
-                {% set tables_2f = [
-                ('2F-B1', 't-6p', 6, 'top: 60px; left: 50%; transform: translateX(-50%);'),
-                ('2F-A1', 't-2p', 2, 'top: 180px; left: 80px;'),
-                ('2F-A2', 't-2p', 2, 'top: 280px; left: 80px;'),
-                ('2F-A3', 't-2p', 2, 'top: 380px; left: 80px;'),
-                ('2F-A4', 't-2p', 2, 'top: 480px; left: 80px;'),
-                ('2F-C1', 't-4p', 4, 'top: 220px; right: 80px;'),
-                ('2F-D1', 't-4p', 4, 'top: 380px; right: 80px;')
-                ] %}
+            <div class="map-wrapper">
+                <div class="floor-plan">
+                    {% set tables_2f = [
+                    ('2F-B1', 't-6p', 6, 'top: 60px; left: 50%; transform: translateX(-50%);'),
+                    ('2F-A1', 't-1p', 1, 'top: 180px; left: 80px;'),
+                    ('2F-A2', 't-1p', 1, 'top: 280px; left: 80px;'),
+                    ('2F-A3', 't-1p', 1, 'top: 380px; left: 80px;'),
+                    ('2F-A4', 't-1p', 1, 'top: 480px; left: 80px;'),
+                    ('2F-C1', 't-4p', 4, 'top: 220px; right: 80px;'),
+                    ('2F-D1', 't-4p', 4, 'top: 380px; right: 80px;')
+                    ] %}
 
-                {% for tid, tclass, cap, tstyle in tables_2f %}
-                {% set occ = occupied_tables.get(tid, {"booked_pax": 0, "bookings": []}) %}
-                {% set status = 'status-available' %}
-                {% if occ.booked_pax >= cap %}{% set status = 'status-full' %}
-                {% elif occ.booked_pax > 0 %}{% set status = 'status-partial' %}{% endif %}
+                    {% for tid, tclass, cap, tstyle in tables_2f %}
+                    {% set occ = occupied_tables.get(tid, {"booked_pax": 0, "bookings": []}) %}
+                    {% set status = 'status-available' %}
+                    {% if occ.booked_pax >= cap %}{% set status = 'status-full' %}
+                    {% elif occ.booked_pax > 0 %}{% set status = 'status-partial' %}{% endif %}
 
-                <div class="table {{ tclass }} {{ status }}" style="{{ tstyle }}" id="{{ tid }}"
-                    onclick='showDetails("{{ tid }}", {{ cap }}, {{ occ.booked_pax }}, {{ occ.bookings | tojson }})'>
-                    {{ tid.split('-')[1] }}
-                    {% if tclass == 't-2p' %}
-                    <div class="chair c-left {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                    <div class="chair c-right {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
-                    {% elif tclass == 't-4p' %}
-                    <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                    <div class="chair c-top-3 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
-                    <div class="chair c-bottom-1 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
-                    <div class="chair c-bottom-3 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
-                    {% elif tclass == 't-6p' %}
-                    <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                    <div class="chair c-top-2 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
-                    <div class="chair c-top-3 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
-                    <div class="chair c-bottom-1 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
-                    <div class="chair c-bottom-2 {% if occ.booked_pax >= 5 %}occupied{% endif %}"></div>
-                    <div class="chair c-bottom-3 {% if occ.booked_pax >= 6 %}occupied{% endif %}"></div>
-                    {% endif %}
+                    <div class="table {{ tclass }} {{ status }}" style="{{ tstyle }}" id="{{ tid }}"
+                        onclick='showDetails("{{ tid }}", {{ cap }}, {{ occ.booked_pax }}, {{ occ.bookings | tojson }})'>
+                        {{ tid.split('-')[1] }}
+                        {% if tclass == 't-1p' %}
+                        <div class="chair c-top {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
+                        {% elif tclass == 't-2p' %}
+                        <div class="chair c-left {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
+                        <div class="chair c-right {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
+                        {% elif tclass == 't-4p' %}
+                        <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
+                        <div class="chair c-top-3 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
+                        <div class="chair c-bottom-1 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
+                        <div class="chair c-bottom-3 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
+                        {% elif tclass == 't-6p' %}
+                        <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
+                        <div class="chair c-top-2 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
+                        <div class="chair c-top-3 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
+                        <div class="chair c-bottom-1 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
+                        <div class="chair c-bottom-2 {% if occ.booked_pax >= 5 %}occupied{% endif %}"></div>
+                        <div class="chair c-bottom-3 {% if occ.booked_pax >= 6 %}occupied{% endif %}"></div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
                 </div>
-                {% endfor %}
             </div>
         </div>
 
         <!-- 3F Map -->
         <div id="3F" class="tab-content">
-            <div class="floor-plan">
-                {% set tables_3f = [
-                ('3F-F1', 't-6p', 6, 'top: 60px; left: 50%; transform: translateX(-50%);'),
-                ('3F-E1', 't-2p', 2, 'top: 180px; left: 80px;'),
-                ('3F-E2', 't-2p', 2, 'top: 280px; left: 80px;'),
-                ('3F-E3', 't-2p', 2, 'top: 380px; left: 80px;'),
-                ('3F-E4', 't-2p', 2, 'top: 480px; left: 80px;'),
-                ('3F-G1', 't-4p', 4, 'top: 180px; right: 100px;'),
-                ('3F-H1', 't-4p', 4, 'top: 300px; right: 100px;'),
-                ('3F-I1', 't-4p', 4, 'top: 420px; right: 100px;')
-                ] %}
+            <div class="map-wrapper">
+                <div class="floor-plan">
+                    {% set tables_3f = [
+                    ('3F-F1', 't-6p', 6, 'top: 60px; left: 50%; transform: translateX(-50%);'),
+                    ('3F-E1', 't-1p', 1, 'top: 180px; left: 80px;'),
+                    ('3F-E2', 't-1p', 1, 'top: 280px; left: 80px;'),
+                    ('3F-E3', 't-1p', 1, 'top: 380px; left: 80px;'),
+                    ('3F-E4', 't-1p', 1, 'top: 480px; left: 80px;'),
+                    ('3F-G1', 't-4p', 4, 'top: 180px; right: 100px;'),
+                    ('3F-H1', 't-4p', 4, 'top: 300px; right: 100px;'),
+                    ('3F-I1', 't-4p', 4, 'top: 420px; right: 100px;')
+                    ] %}
 
-                {% for tid, tclass, cap, tstyle in tables_3f %}
-                {% set occ = occupied_tables.get(tid, {"booked_pax": 0, "bookings": []}) %}
-                {% set status = 'status-available' %}
-                {% if occ.booked_pax >= cap %}{% set status = 'status-full' %}
-                {% elif occ.booked_pax > 0 %}{% set status = 'status-partial' %}{% endif %}
+                    {% for tid, tclass, cap, tstyle in tables_3f %}
+                    {% set occ = occupied_tables.get(tid, {"booked_pax": 0, "bookings": []}) %}
+                    {% set status = 'status-available' %}
+                    {% if occ.booked_pax >= cap %}{% set status = 'status-full' %}
+                    {% elif occ.booked_pax > 0 %}{% set status = 'status-partial' %}{% endif %}
 
-                <div class="table {{ tclass }} {{ status }}" style="{{ tstyle }}" id="{{ tid }}"
-                    onclick='showDetails("{{ tid }}", {{ cap }}, {{ occ.booked_pax }}, {{ occ.bookings | tojson }})'>
-                    {{ tid.split('-')[1] }}
-                    {% if tclass == 't-2p' %}
-                    <div class="chair c-left {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                    <div class="chair c-right {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
-                    {% elif tclass == 't-4p' %}
-                    <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                    <div class="chair c-top-3 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
-                    <div class="chair c-bottom-1 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
-                    <div class="chair c-bottom-3 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
-                    {% elif tclass == 't-6p' %}
-                    <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                    <div class="chair c-top-2 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
-                    <div class="chair c-top-3 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
-                    <div class="chair c-bottom-1 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
-                    <div class="chair c-bottom-2 {% if occ.booked_pax >= 5 %}occupied{% endif %}"></div>
-                    <div class="chair c-bottom-3 {% if occ.booked_pax >= 6 %}occupied{% endif %}"></div>
-                    {% endif %}
+                    <div class="table {{ tclass }} {{ status }}" style="{{ tstyle }}" id="{{ tid }}"
+                        onclick='showDetails("{{ tid }}", {{ cap }}, {{ occ.booked_pax }}, {{ occ.bookings | tojson }})'>
+                        {{ tid.split('-')[1] }}
+                        {% if tclass == 't-1p' %}
+                        <div class="chair c-top {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
+                        {% elif tclass == 't-2p' %}
+                        <div class="chair c-left {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
+                        <div class="chair c-right {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
+                        {% elif tclass == 't-4p' %}
+                        <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
+                        <div class="chair c-top-3 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
+                        <div class="chair c-bottom-1 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
+                        <div class="chair c-bottom-3 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
+                        {% elif tclass == 't-6p' %}
+                        <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
+                        <div class="chair c-top-2 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
+                        <div class="chair c-top-3 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
+                        <div class="chair c-bottom-1 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
+                        <div class="chair c-bottom-2 {% if occ.booked_pax >= 5 %}occupied{% endif %}"></div>
+                        <div class="chair c-bottom-3 {% if occ.booked_pax >= 6 %}occupied{% endif %}"></div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
                 </div>
-                {% endfor %}
+            </div>
+
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="dot" style="background: #e8f8f5; border-color: #2ecc71;"></div> Available
+                </div>
+                <div class="legend-item">
+                    <div class="dot" style="background: #fff4e5; border-color: #f39c12;"></div> Partial
+                </div>
+                <div class="legend-item">
+                    <div class="dot" style="background: #fdedec; border-color: #e74c3c;"></div> Full
+                </div>
+            </div>
+
+            <a href="/admin" class="back-link">← Back to Admin Dashboard</a>
+        </div>
+
+        <!-- Modal -->
+        <div id="detailsModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modalTitle">Table Details</h3>
+                    <span class="close" onclick="closeModal()">&times;</span>
+                </div>
+                <div id="modalBody">
+                    <!-- Booking details will be injected here -->
+                </div>
             </div>
         </div>
 
-        <div class="legend">
-            <div class="legend-item">
-                <div class="dot" style="background: #e8f8f5; border-color: #2ecc71;"></div> Available
-            </div>
-            <div class="legend-item">
-                <div class="dot" style="background: #fff4e5; border-color: #f39c12;"></div> Partial
-            </div>
-            <div class="legend-item">
-                <div class="dot" style="background: #fdedec; border-color: #e74c3c;"></div> Full
-            </div>
-        </div>
+        <script>
+            function openTab(tabName) {
+                var contents = document.getElementsByClassName("tab-content");
+                for (var i = 0; i < contents.length; i++) contents[i].classList.remove("active");
+                var buttons = document.getElementsByClassName("tab-btn");
+                for (var i = 0; i < buttons.length; i++) buttons[i].classList.remove("active");
+                document.getElementById(tabName).classList.add("active");
+                event.currentTarget.classList.add("active");
+            }
 
-        <a href="/admin" class="back-link">← Back to Admin Dashboard</a>
-    </div>
+            function showDetails(tid, cap, booked, bookings) {
+                document.getElementById('modalTitle').innerText = `Table ${tid} (${booked}/${cap} seats)`;
+                let body = document.getElementById('modalBody');
+                body.innerHTML = '';
 
-    <!-- Modal -->
-    <div id="detailsModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modalTitle">Table Details</h3>
-                <span class="close" onclick="closeModal()">&times;</span>
-            </div>
-            <div id="modalBody">
-                <!-- Booking details will be injected here -->
-            </div>
-        </div>
-    </div>
-
-    <script>
-        function openTab(tabName) {
-            var contents = document.getElementsByClassName("tab-content");
-            for (var i = 0; i < contents.length; i++) contents[i].classList.remove("active");
-            var buttons = document.getElementsByClassName("tab-btn");
-            for (var i = 0; i < buttons.length; i++) buttons[i].classList.remove("active");
-            document.getElementById(tabName).classList.add("active");
-            event.currentTarget.classList.add("active");
-        }
-
-        function showDetails(tid, cap, booked, bookings) {
-            document.getElementById('modalTitle').innerText = `Table ${tid} (${booked}/${cap} seats)`;
-            let body = document.getElementById('modalBody');
-            body.innerHTML = '';
-
-            if (bookings.length === 0) {
-                body.innerHTML = '<p style="text-align:center; color:#999;">No reservations for this table today.</p>';
-            } else {
-                bookings.forEach(b => {
-                    body.innerHTML += `
+                if (bookings.length === 0) {
+                    body.innerHTML = '<p style="text-align:center; color:#999;">No reservations for this table today.</p>';
+                } else {
+                    bookings.forEach(b => {
+                        body.innerHTML += `
                         <div class="booking-item">
                             <span><strong>${b.name}</strong> (${b.pax}p)</span>
                             <span style="color:#666;">${b.time}</span>
                         </div>
                     `;
-                });
+                    });
+                }
+                document.getElementById('detailsModal').style.display = "block";
             }
-            document.getElementById('detailsModal').style.display = "block";
-        }
 
-        function closeModal() { document.getElementById('detailsModal').style.display = "none"; }
-        window.onclick = function (event) { if (event.target == document.getElementById('detailsModal')) closeModal(); }
-    </script>
+            function closeModal() { document.getElementById('detailsModal').style.display = "none"; }
+            window.onclick = function (event) { if (event.target == document.getElementById('detailsModal')) closeModal(); }
+        </script>
 </body>
 
 </html>
