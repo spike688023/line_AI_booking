@@ -428,23 +428,37 @@
                         onmouseenter="highlightGroup(this)" onmouseleave="clearHighlight()"
                         onclick='showDetails("{{ tid }}", {{ cap }}, {{ occ.booked_pax }}, {{ occ.bookings | tojson }})'>
                         {{ tid.split('-')[1] }}
+                        {% set sm = occ.seat_map %}
                         {% if tclass == 't-1p' %}
-                        <div class="chair c-top {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
+                        <div class="chair c-top {% if sm|length >= 1 %}occupied{% endif %}"
+                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
                         {% elif tclass == 't-2p' %}
-                        <div class="chair c-left {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                        <div class="chair c-right {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
+                        <div class="chair c-left {% if sm|length >= 1 %}occupied{% endif %}"
+                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
+                        <div class="chair c-right {% if sm|length >= 2 %}occupied{% endif %}"
+                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
                         {% elif tclass == 't-4p' %}
-                        <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                        <div class="chair c-top-3 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
-                        <div class="chair c-bottom-1 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
-                        <div class="chair c-bottom-3 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
+                        <div class="chair c-top-1 {% if sm|length >= 1 %}occupied{% endif %}"
+                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
+                        <div class="chair c-top-3 {% if sm|length >= 2 %}occupied{% endif %}"
+                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
+                        <div class="chair c-bottom-1 {% if sm|length >= 3 %}occupied{% endif %}"
+                            data-res-id="{{ sm[2] if sm|length >= 3 else '' }}"></div>
+                        <div class="chair c-bottom-3 {% if sm|length >= 4 %}occupied{% endif %}"
+                            data-res-id="{{ sm[3] if sm|length >= 4 else '' }}"></div>
                         {% elif tclass == 't-6p' %}
-                        <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                        <div class="chair c-top-2 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
-                        <div class="chair c-top-3 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
-                        <div class="chair c-bottom-1 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
-                        <div class="chair c-bottom-2 {% if occ.booked_pax >= 5 %}occupied{% endif %}"></div>
-                        <div class="chair c-bottom-3 {% if occ.booked_pax >= 6 %}occupied{% endif %}"></div>
+                        <div class="chair c-top-1 {% if sm|length >= 1 %}occupied{% endif %}"
+                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
+                        <div class="chair c-top-2 {% if sm|length >= 2 %}occupied{% endif %}"
+                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
+                        <div class="chair c-top-3 {% if sm|length >= 3 %}occupied{% endif %}"
+                            data-res-id="{{ sm[2] if sm|length >= 3 else '' }}"></div>
+                        <div class="chair c-bottom-1 {% if sm|length >= 4 %}occupied{% endif %}"
+                            data-res-id="{{ sm[3] if sm|length >= 4 else '' }}"></div>
+                        <div class="chair c-bottom-2 {% if sm|length >= 5 %}occupied{% endif %}"
+                            data-res-id="{{ sm[4] if sm|length >= 5 else '' }}"></div>
+                        <div class="chair c-bottom-3 {% if sm|length >= 6 %}occupied{% endif %}"
+                            data-res-id="{{ sm[5] if sm|length >= 6 else '' }}"></div>
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -478,23 +492,37 @@
                         onmouseenter="highlightGroup(this)" onmouseleave="clearHighlight()"
                         onclick='showDetails("{{ tid }}", {{ cap }}, {{ occ.booked_pax }}, {{ occ.bookings | tojson }})'>
                         {{ tid.split('-')[1] }}
+                        {% set sm = occ.seat_map %}
                         {% if tclass == 't-1p' %}
-                        <div class="chair c-top {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
+                        <div class="chair c-top {% if sm|length >= 1 %}occupied{% endif %}"
+                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
                         {% elif tclass == 't-2p' %}
-                        <div class="chair c-left {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                        <div class="chair c-right {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
+                        <div class="chair c-left {% if sm|length >= 1 %}occupied{% endif %}"
+                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
+                        <div class="chair c-right {% if sm|length >= 2 %}occupied{% endif %}"
+                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
                         {% elif tclass == 't-4p' %}
-                        <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                        <div class="chair c-top-3 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
-                        <div class="chair c-bottom-1 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
-                        <div class="chair c-bottom-3 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
+                        <div class="chair c-top-1 {% if sm|length >= 1 %}occupied{% endif %}"
+                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
+                        <div class="chair c-top-3 {% if sm|length >= 2 %}occupied{% endif %}"
+                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
+                        <div class="chair c-bottom-1 {% if sm|length >= 3 %}occupied{% endif %}"
+                            data-res-id="{{ sm[2] if sm|length >= 3 else '' }}"></div>
+                        <div class="chair c-bottom-3 {% if sm|length >= 4 %}occupied{% endif %}"
+                            data-res-id="{{ sm[3] if sm|length >= 4 else '' }}"></div>
                         {% elif tclass == 't-6p' %}
-                        <div class="chair c-top-1 {% if occ.booked_pax >= 1 %}occupied{% endif %}"></div>
-                        <div class="chair c-top-2 {% if occ.booked_pax >= 2 %}occupied{% endif %}"></div>
-                        <div class="chair c-top-3 {% if occ.booked_pax >= 3 %}occupied{% endif %}"></div>
-                        <div class="chair c-bottom-1 {% if occ.booked_pax >= 4 %}occupied{% endif %}"></div>
-                        <div class="chair c-bottom-2 {% if occ.booked_pax >= 5 %}occupied{% endif %}"></div>
-                        <div class="chair c-bottom-3 {% if occ.booked_pax >= 6 %}occupied{% endif %}"></div>
+                        <div class="chair c-top-1 {% if sm|length >= 1 %}occupied{% endif %}"
+                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
+                        <div class="chair c-top-2 {% if sm|length >= 2 %}occupied{% endif %}"
+                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
+                        <div class="chair c-top-3 {% if sm|length >= 3 %}occupied{% endif %}"
+                            data-res-id="{{ sm[2] if sm|length >= 3 else '' }}"></div>
+                        <div class="chair c-bottom-1 {% if sm|length >= 4 %}occupied{% endif %}"
+                            data-res-id="{{ sm[3] if sm|length >= 4 else '' }}"></div>
+                        <div class="chair c-bottom-2 {% if sm|length >= 5 %}occupied{% endif %}"
+                            data-res-id="{{ sm[4] if sm|length >= 5 else '' }}"></div>
+                        <div class="chair c-bottom-3 {% if sm|length >= 6 %}occupied{% endif %}"
+                            data-res-id="{{ sm[5] if sm|length >= 6 else '' }}"></div>
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -584,8 +612,8 @@
             }
 
             function clearHighlight() {
-                const allTables = document.querySelectorAll('.table');
-                allTables.forEach(t => t.classList.remove('group-highlight'));
+                const allChairs = document.querySelectorAll('.chair');
+                allChairs.forEach(c => c.classList.remove('group-highlight'));
             }
 
             function highlightById(resId) {
@@ -593,13 +621,14 @@
                 const allTables = document.querySelectorAll('.table');
                 let found = false;
                 allTables.forEach(t => {
-                    const tIds = t.getAttribute('data-res-ids');
-                    if (tIds && tIds.split(',').includes(resId)) {
-                        // Instead of highlighting the table, highlight its chairs
-                        const chairs = t.querySelectorAll('.chair.occupied');
-                        chairs.forEach(c => c.classList.add('sticky-highlight'));
-                        found = true;
-                    }
+                    const chairs = t.querySelectorAll('.chair.occupied');
+                    chairs.forEach(c => {
+                        const cId = c.getAttribute('data-res-id');
+                        if (cId === resId) {
+                            c.classList.add('sticky-highlight');
+                            found = true;
+                        }
+                    });
                 });
 
                 if (found) {

@@ -44,6 +44,14 @@ async def seating_map(request: Request, date: str = None):
         
     occupied_tables = await db.get_daily_occupied_tables(date)
     
+    # Pre-process seat assignments for the template
+    for tid, data in occupied_tables.items():
+        seat_map = []
+        for b in data.get("bookings", []):
+            for _ in range(b.get("pax", 0)):
+                seat_map.append(b.get("res_id", ""))
+        data["seat_map"] = seat_map
+    
     return templates.TemplateResponse("seating_map.html", {
         "request": request,
         "date": date,

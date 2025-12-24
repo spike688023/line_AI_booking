@@ -120,6 +120,7 @@
         <table>
             <thead>
                 <tr>
+                    <th>ID</th>
                     <th>Date</th>
                     <th>Time</th>
                     <th>Pax</th>
@@ -131,6 +132,7 @@
             <tbody>
                 {% for res in reservations %}
                 <tr>
+                    <td style="font-family: monospace; color: #666; font-size: 13px;">{{ res.id[:5] }}</td>
                     <td>{{ res.date }}</td>
                     <td>{{ res.time }}</td>
                     <td>{{ res.pax }}</td>
