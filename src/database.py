@@ -179,7 +179,8 @@ class Database:
                     "res_id": reservation_ref.id,
                     "name": name,
                     "pax": take_pax,
-                    "time": time
+                    "time": time,
+                    "phone_suffix": phone[-4:] if phone else "????"
                 })
             
             transaction.set(slot_ref, {"occupancy": occupancy}, merge=True)

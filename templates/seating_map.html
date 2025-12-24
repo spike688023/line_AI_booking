@@ -153,6 +153,24 @@
             z-index: 15;
         }
 
+        .sticky-highlight {
+            border-color: #e67e22 !important;
+            box-shadow: 0 0 20px rgba(230, 126, 34, 0.9) !important;
+            transform: scale(1.1);
+            z-index: 20;
+        }
+
+        .booking-item {
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+
+        .booking-item:hover {
+            background-color: #f0f7ff;
+        }
+
         .t-1p {
             width: 50px;
             height: 50px;
@@ -516,9 +534,15 @@
                 } else {
                     bookings.forEach(b => {
                         body.innerHTML += `
-                        <div class="booking-item">
-                            <span><strong>${b.name}</strong> (${b.pax}p)</span>
+                        <div class="booking-item" onclick="highlightById('${b.res_id}'); closeModal();" title="Click to highlight tables">
+                            <span><strong>${b.name}</strong> 
+                                <small style="color:#888;">#${b.phone_suffix || '???'}</small>
+                                (${b.pax}p)
+                            </span>
                             <span style="color:#666;">${b.time}</span>
+                        </div>
+                        <div style="font-size: 10px; color: #ccc; margin-bottom: 10px; margin-top: -8px; padding-left: 8px;">
+                            ID: ${b.res_id.substring(0, 8)}...
                         </div>
                     `;
                     });
@@ -546,6 +570,29 @@
             function clearHighlight() {
                 const allTables = document.querySelectorAll('.table');
                 allTables.forEach(t => t.classList.remove('group-highlight'));
+            }
+
+            function highlightById(resId) {
+                clearStickyHighlight();
+                const allTables = document.querySelectorAll('.table');
+                let found = false;
+                allTables.forEach(t => {
+                    const tIds = t.getAttribute('data-res-ids');
+                    if (tIds && tIds.split(',').includes(resId)) {
+                        t.classList.add('sticky-highlight');
+                        found = true;
+                    }
+                });
+
+                if (found) {
+                    // Auto-clear after 5 seconds or on next click
+                    setTimeout(clearStickyHighlight, 5000);
+                }
+            }
+
+            function clearStickyHighlight() {
+                const allTables = document.querySelectorAll('.table');
+                allTables.forEach(t => t.classList.remove('sticky-highlight'));
             }
         </script>
 </body>
