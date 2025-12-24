@@ -133,20 +133,45 @@ class Database:
             if best_table:
                 assigned_tables = [(best_table, pax)]
             else:
-                # Sort tables by capacity DESC to keep the group as bunched together as possible
-                multi_table_configs = sorted(self.TABLE_CONFIG.items(), key=lambda x: x[1]["capacity"], reverse=True)
-                temp_pax = pax
-                for table_id, config in multi_table_configs:
-                    if temp_pax <= 0: break
-                    table_data = occupancy.get(table_id, {"booked_pax": 0})
-                    remaining = config["capacity"] - table_data["booked_pax"]
-                    
-                    if remaining > 0:
-                        take = min(temp_pax, remaining)
-                        assigned_tables.append((table_id, take))
-                        temp_pax -= take
+                # NEW: Try to fit everyone on the SAME FLOOR first
+                floors = [2, 3] # Prioritize 2F then 3F
+                floor_assigned = False
                 
-                if temp_pax > 0:
+                for f in floors:
+                    temp_assigned = []
+                    f_temp_pax = pax
+                    # Get tables for this floor, sorted by capacity DESC
+                    f_tables = sorted([item for item in self.TABLE_CONFIG.items() if item[1]["floor"] == f], 
+                                     key=lambda x: x[1]["capacity"], reverse=True)
+                    
+                    for table_id, config in f_tables:
+                        if f_temp_pax <= 0: break
+                        table_data = occupancy.get(table_id, {"booked_pax": 0})
+                        remaining = config["capacity"] - table_data["booked_pax"]
+                        if remaining > 0:
+                            take = min(f_temp_pax, remaining)
+                            temp_assigned.append((table_id, take))
+                            f_temp_pax -= take
+                    
+                    if f_temp_pax <= 0:
+                        assigned_tables = temp_assigned
+                        floor_assigned = True
+                        break
+                
+                # If cannot fit on one floor, fallback to global greedy (cross-floor)
+                if not floor_assigned:
+                    multi_table_configs = sorted(self.TABLE_CONFIG.items(), key=lambda x: x[1]["capacity"], reverse=True)
+                    temp_pax = pax
+                    for table_id, config in multi_table_configs:
+                        if temp_pax <= 0: break
+                        table_data = occupancy.get(table_id, {"booked_pax": 0})
+                        remaining = config["capacity"] - table_data["booked_pax"]
+                        if remaining > 0:
+                            take = min(temp_pax, remaining)
+                            assigned_tables.append((table_id, take))
+                            temp_pax -= take
+                
+                if not assigned_tables or sum(t[1] for t in assigned_tables) < pax:
                     raise Exception("overbooked")
 
             # 4. Create the reservation

@@ -35,20 +35,59 @@ async def reset_and_repair_properly():
         remaining_pax = pax
         assigned_tables = []
         
-        # Sort by Capacity DESC to keep groups together in big blocks
-        sorted_tables = sorted(TABLE_CONFIG.items(), key=lambda x: x[1], reverse=True)
+        # Try to fit everyone on the SAME FLOOR first (Group Together Principle)
+        floors = [2, 3]
+        floor_assigned = False
+        temp_phone = data.get("phone", "")
         
-        for tid, cap in sorted_tables:
-            if remaining_pax <= 0: break
-            current_booked = daily_occupancy[date].get(tid, {}).get("booked_pax", 0)
-            available = cap - current_booked
-            if available > 0:
-                take = min(remaining_pax, available)
-                if tid not in daily_occupancy[date]: daily_occupancy[date][tid] = {"booked_pax": 0, "bookings": []}
-                daily_occupancy[date][tid]["booked_pax"] += take
-                daily_occupancy[date][tid]["bookings"].append({"res_id": res_id, "name": name, "pax": take, "time": time})
-                remaining_pax -= take
-                assigned_tables.append(tid)
+        for f in floors:
+            temp_assigned = []
+            f_temp_pax = remaining_pax
+            f_tables = sorted([item for item in TABLE_CONFIG.items() if (item[0].startswith(f"{f}F"))], 
+                             key=lambda x: x[1], reverse=True)
+            
+            for tid, cap in f_tables:
+                if f_temp_pax <= 0: break
+                current_booked = daily_occupancy[date].get(tid, {}).get("booked_pax", 0)
+                available = cap - current_booked
+                if available > 0:
+                    take = min(f_temp_pax, available)
+                    temp_assigned.append((tid, take))
+                    f_temp_pax -= take
+            
+            if f_temp_pax <= 0:
+                for tid, take in temp_assigned:
+                    if tid not in daily_occupancy[date]: daily_occupancy[date][tid] = {"booked_pax": 0, "bookings": []}
+                    daily_occupancy[date][tid]["booked_pax"] += take
+                    daily_occupancy[date][tid]["bookings"].append({
+                        "res_id": res_id, "name": name, "pax": take, "time": time,
+                        "phone_suffix": temp_phone[-4:] if temp_phone else "????"
+                    })
+                assigned_tables = [t[0] for t in temp_assigned]
+                floor_assigned = True
+                break
+
+        # Fallback to current global logic if single floor fails
+        if not floor_assigned:
+            for tid, cap in sorted_tables:
+                if remaining_pax <= 0: break
+                current_booked = daily_occupancy[date].get(tid, {}).get("booked_pax", 0)
+                available = cap - current_booked
+                if available > 0:
+                    take = min(remaining_pax, available)
+                    if tid not in daily_occupancy[date]: daily_occupancy[date][tid] = {"booked_pax": 0, "bookings": []}
+                    
+                    phone = data.get("phone", "")
+                    daily_occupancy[date][tid]["booked_pax"] += take
+                    daily_occupancy[date][tid]["bookings"].append({
+                        "res_id": res_id, 
+                        "name": name, 
+                        "pax": take, 
+                        "time": time,
+                        "phone_suffix": phone[-4:] if phone else "????"
+                    })
+                    remaining_pax -= take
+                    assigned_tables.append(tid)
 
         if assigned_tables:
             await client.collection("reservations").document(res_id).update({"table_id": assigned_tables[0]})

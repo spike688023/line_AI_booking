@@ -154,21 +154,36 @@
         }
 
         .sticky-highlight {
-            border-color: #e67e22 !important;
-            box-shadow: 0 0 20px rgba(230, 126, 34, 0.9) !important;
-            transform: scale(1.1);
+            box-shadow: 0 0 12px 4px rgba(230, 126, 34, 1) !important;
+            background-color: #e67e22 !important;
+            border-color: #d35400 !important;
+            transform: scale(1.2);
             z-index: 20;
         }
 
         .booking-item {
             cursor: pointer;
-            padding: 8px;
-            border-radius: 6px;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
             transition: background 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
-        .booking-item:hover {
-            background-color: #f0f7ff;
+        .booking-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .booking-id-tag {
+            font-size: 10px;
+            background: #f0f0f0;
+            padding: 2px 5px;
+            border-radius: 4px;
+            color: #999;
+            margin-left: 8px;
         }
 
         .t-1p {
@@ -534,15 +549,16 @@
                 } else {
                     bookings.forEach(b => {
                         body.innerHTML += `
-                        <div class="booking-item" onclick="highlightById('${b.res_id}'); closeModal();" title="Click to highlight tables">
-                            <span><strong>${b.name}</strong> 
-                                <small style="color:#888;">#${b.phone_suffix || '???'}</small>
-                                (${b.pax}p)
-                            </span>
-                            <span style="color:#666;">${b.time}</span>
-                        </div>
-                        <div style="font-size: 10px; color: #ccc; margin-bottom: 10px; margin-top: -8px; padding-left: 8px;">
-                            ID: ${b.res_id.substring(0, 8)}...
+                        <div class="booking-item" onclick="highlightById('${b.res_id}'); closeModal();" title="Click to highlight seating">
+                            <div class="booking-info">
+                                <span>
+                                    <strong>${b.name}</strong> 
+                                    <small style="color:#e67e22; font-weight:bold;">#${b.phone_suffix || '???'}</small>
+                                    <span class="booking-id-tag">ID: ${b.res_id.substring(0, 5)}</span>
+                                </span>
+                                <small style="color:#666;">Pax: ${b.pax} | Time: ${b.time}</small>
+                            </div>
+                            <span style="font-size: 18px; color: #e67e22;">➜</span>
                         </div>
                     `;
                     });
@@ -579,20 +595,21 @@
                 allTables.forEach(t => {
                     const tIds = t.getAttribute('data-res-ids');
                     if (tIds && tIds.split(',').includes(resId)) {
-                        t.classList.add('sticky-highlight');
+                        // Instead of highlighting the table, highlight its chairs
+                        const chairs = t.querySelectorAll('.chair.occupied');
+                        chairs.forEach(c => c.classList.add('sticky-highlight'));
                         found = true;
                     }
                 });
 
                 if (found) {
-                    // Auto-clear after 5 seconds or on next click
                     setTimeout(clearStickyHighlight, 5000);
                 }
             }
 
             function clearStickyHighlight() {
-                const allTables = document.querySelectorAll('.table');
-                allTables.forEach(t => t.classList.remove('sticky-highlight'));
+                const allChairs = document.querySelectorAll('.chair');
+                allChairs.forEach(c => c.classList.remove('sticky-highlight'));
             }
         </script>
 </body>

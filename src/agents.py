@@ -427,16 +427,14 @@ class ConversationAgent(BaseAgent):
         {hours_str}
         
         【Seating Information】
-        1F:
-        - Bar counter: 2 seats
-        - 4-person table: 1
-        - 2-person table: 1
+        - Total Capacity: ~40 seats across 3 floors.
+        - 1F: Bar counter (2), 4-p table (1), 2-p table (1).
+        - 2F: Large 6-p table (1), 4-p tables (2), 1-p quiet seats (4). (Restroom available)
+        - 3F: Large 6-p table (1), 4-p tables (3), 1-p quiet seats (4).
         
-        2F:
-        - Restroom available
-        - 4-person table: 2
-        - Bar counter: 3 seats
-        - 6-person table: 1
+        【Booking Policy for Large Groups】
+        - We welcome large groups! If the group size exceeds our largest table (6 people), our system will automatically allocate multiple adjacent tables on the SAME FLOOR to keep your group together.
+        - The interactive seating map will show the exact table arrangement.
         """
         
         # Get current date
@@ -464,6 +462,10 @@ class ConversationAgent(BaseAgent):
            - If information is missing (e.g. phone number for booking), ASK for it politely.
         5. Modifications:
            - If the user wants to modify a reservation, first use 'get_my_reservations' to show them what they have, then use 'modify_reservation' if they confirm.
+        6. Split Seating Warning:
+           - If a booking is for more than 6 people, you MUST inform the user that they will be split across multiple tables.
+           - Reassure them that the tables will be on the SAME FLOOR to keep the group together.
+           - Example: "由於您的團體人數較多（8位），我們將為您安排在同一樓層的兩張相鄰桌位，方便您們互相照應。"
         """
 
         try:
