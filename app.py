@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from linebot import LineBotApi, WebhookParser
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import MessageEvent, TextMessage, TextSendMessage, FollowEvent
 from src.database import db
 
 # Initialize Logging
@@ -312,6 +312,8 @@ async def callback(request: Request):
             for event in events:
                 if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
                     await handle_message_async(event)
+                elif isinstance(event, FollowEvent):
+                    await handle_follow_async(event)
     except InvalidSignatureError:
         logger.error("Invalid signature. Please check your channel access token/channel secret.")
         raise HTTPException(status_code=400, detail="Invalid signature")
@@ -353,6 +355,22 @@ async def handle_message_async(event):
         )
     except Exception as e:
         logger.error(f"Error sending reply: {e}")
+
+async def handle_follow_async(event):
+    welcome_text = (
+        "您好！我是「言文字」AI 訂位系統 ☕️\n\n"
+        "很高興能為您服務！我可以幫您：\n"
+        "1. 預約訂位 📅\n"
+        "2. 查詢或修改您的訂位內容\n\n"
+        "請問今天有什麼我可以幫您的嗎？"
+    )
+    try:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=welcome_text)
+        )
+    except Exception as e:
+        logger.error(f"Error sending welcome reply: {e}")
 
 if __name__ == "__main__":
     import uvicorn
