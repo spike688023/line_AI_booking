@@ -111,29 +111,48 @@ class Database:
             if snapshot.exists:
                 occupancy = snapshot.to_dict().get("occupancy", {})
             
-            # 2. Find the best table with enough REMAINING capacity
+            # 2. Try to find ONE table that fits everyone first (ideal case)
             best_table = None
             min_remaining_after = float('inf')
             
-            # Sort tables by capacity to be efficient
-            table_items = sorted(self.TABLE_CONFIG.items(), key=lambda x: x[1]["capacity"])
+            # Sort tables by capacity ASC for "Compactness" when single-table booking
+            table_configs = sorted(self.TABLE_CONFIG.items(), key=lambda x: x[1]["capacity"])
             
-            for table_id, config in table_items:
+            for table_id, config in table_configs:
                 table_data = occupancy.get(table_id, {"booked_pax": 0})
                 remaining = config["capacity"] - table_data["booked_pax"]
-                
                 if remaining >= pax:
-                    # We want the table that will be "most full" after this booking (Strategy: Compactness)
                     remaining_after = remaining - pax
                     if remaining_after < min_remaining_after:
                         min_remaining_after = remaining_after
                         best_table = table_id
                     if remaining_after == 0: break # Perfect fill
-            
-            if not best_table:
-                raise Exception("overbooked")
 
-            # 3. Create the reservation
+            # 3. If no single table fits, use MULTI-TABLE strategy
+            assigned_tables = []
+            if best_table:
+                assigned_tables = [(best_table, pax)]
+            else:
+                # Sort tables by capacity DESC to keep the group as bunched together as possible
+                multi_table_configs = sorted(self.TABLE_CONFIG.items(), key=lambda x: x[1]["capacity"], reverse=True)
+                temp_pax = pax
+                for table_id, config in multi_table_configs:
+                    if temp_pax <= 0: break
+                    table_data = occupancy.get(table_id, {"booked_pax": 0})
+                    remaining = config["capacity"] - table_data["booked_pax"]
+                    
+                    if remaining > 0:
+                        take = min(temp_pax, remaining)
+                        assigned_tables.append((table_id, take))
+                        temp_pax -= take
+                
+                if temp_pax > 0:
+                    raise Exception("overbooked")
+
+            # 4. Create the reservation
+            primary_table = assigned_tables[0][0]
+            all_tables_str = ", ".join([t[0] for t in assigned_tables])
+            
             reservation_data = {
                 "user_id": user_id,
                 "name": name,
@@ -141,31 +160,30 @@ class Database:
                 "date": date,
                 "time": time,
                 "pax": pax,
-                "table_id": best_table,
+                "table_id": primary_table, # Keep for backward compatibility
+                "all_tables": all_tables_str, # Record all assigned tables
                 "status": "confirmed",
                 "created_at": firestore.SERVER_TIMESTAMP
             }
             transaction.set(reservation_ref, reservation_data)
             
-            # 4. Update daily occupancy mapping
-            if best_table not in occupancy:
-                occupancy[best_table] = {"booked_pax": 0, "bookings": []}
-            
-            # Ensure 'bookings' key exists (for backward compatibility or partial data)
-            if "bookings" not in occupancy[best_table]:
-                occupancy[best_table]["bookings"] = []
-                
-            occupancy[best_table]["booked_pax"] += pax
-            occupancy[best_table]["bookings"].append({
-                "res_id": reservation_ref.id,
-                "name": name,
-                "pax": pax,
-                "time": time
-            })
+            # 5. Update occupancy for ALL assigned tables
+            for tid, take_pax in assigned_tables:
+                if tid not in occupancy:
+                    occupancy[tid] = {"booked_pax": 0, "bookings": []}
+                if "bookings" not in occupancy[tid]:
+                    occupancy[tid]["bookings"] = []
+                    
+                occupancy[tid]["booked_pax"] += take_pax
+                occupancy[tid]["bookings"].append({
+                    "res_id": reservation_ref.id,
+                    "name": name,
+                    "pax": take_pax,
+                    "time": time
+                })
             
             transaction.set(slot_ref, {"occupancy": occupancy}, merge=True)
-            
-            return f"{reservation_ref.id}|{best_table}"
+            return f"{reservation_ref.id}|{all_tables_str}"
 
         try:
             result = create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone)

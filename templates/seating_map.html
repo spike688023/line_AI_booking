@@ -146,6 +146,13 @@
             z-index: 10;
         }
 
+        .group-highlight {
+            border-color: #3498db !important;
+            box-shadow: 0 0 15px rgba(52, 152, 219, 0.8) !important;
+            transform: scale(1.08);
+            z-index: 15;
+        }
+
         .t-1p {
             width: 50px;
             height: 50px;
@@ -384,6 +391,8 @@
                     {% elif occ.booked_pax > 0 %}{% set status = 'status-partial' %}{% endif %}
 
                     <div class="table {{ tclass }} {{ status }}" style="{{ tstyle }}" id="{{ tid }}"
+                        data-res-ids='{{ occ.bookings | map(attribute="res_id") | join(",") }}'
+                        onmouseenter="highlightGroup(this)" onmouseleave="clearHighlight()"
                         onclick='showDetails("{{ tid }}", {{ cap }}, {{ occ.booked_pax }}, {{ occ.bookings | tojson }})'>
                         {{ tid.split('-')[1] }}
                         {% if tclass == 't-1p' %}
@@ -432,6 +441,8 @@
                     {% elif occ.booked_pax > 0 %}{% set status = 'status-partial' %}{% endif %}
 
                     <div class="table {{ tclass }} {{ status }}" style="{{ tstyle }}" id="{{ tid }}"
+                        data-res-ids='{{ occ.bookings | map(attribute="res_id") | join(",") }}'
+                        onmouseenter="highlightGroup(this)" onmouseleave="clearHighlight()"
                         onclick='showDetails("{{ tid }}", {{ cap }}, {{ occ.booked_pax }}, {{ occ.bookings | tojson }})'>
                         {{ tid.split('-')[1] }}
                         {% if tclass == 't-1p' %}
@@ -517,6 +528,25 @@
 
             function closeModal() { document.getElementById('detailsModal').style.display = "none"; }
             window.onclick = function (event) { if (event.target == document.getElementById('detailsModal')) closeModal(); }
+
+            function highlightGroup(el) {
+                const ids = el.getAttribute('data-res-ids');
+                if (!ids || ids === "") return;
+                const idList = ids.split(',');
+
+                const allTables = document.querySelectorAll('.table');
+                allTables.forEach(t => {
+                    const tIds = t.getAttribute('data-res-ids');
+                    if (tIds && tIds.split(',').some(id => idList.includes(id))) {
+                        t.classList.add('group-highlight');
+                    }
+                });
+            }
+
+            function clearHighlight() {
+                const allTables = document.querySelectorAll('.table');
+                allTables.forEach(t => t.classList.remove('group-highlight'));
+            }
         </script>
 </body>
 
