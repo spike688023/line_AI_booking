@@ -95,7 +95,7 @@ class Database:
             logger.error(f"Error checking availability: {e}")
             return False
 
-    async def create_reservation(self, user_id: str, date: str, time: str, pax: int, name: str, phone: str) -> str:
+    async def create_reservation(self, user_id: str, date: str, time: str, pax: int, name: str, phone: str, preferred_floor: int = None) -> str:
         """
         Create a reservation and allocate seats on a table (supports shared tables).
         """
@@ -107,7 +107,7 @@ class Database:
         slot_ref = self.client.collection("daily_slots").document(date)
 
         @firestore.transactional
-        def create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone):
+        def create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone, preferred_floor):
             # 1. Get current occupancy for the day
             snapshot = slot_ref.get(transaction=transaction)
             occupancy = {}
@@ -118,14 +118,25 @@ class Database:
             best_table = None
             min_remaining_after = float('inf')
             
-            # Sort tables by capacity ASC for "Compactness" when single-table booking
-            table_configs = sorted(self.TABLE_CONFIG.items(), key=lambda x: x[1]["capacity"])
+            # Sort tables by capacity ASC for "Compactness"
+            # If preferred_floor is set, prioritize tables on that floor
+            table_items = self.TABLE_CONFIG.items()
+            if preferred_floor:
+                # specific sort: preferred floor first, then others
+                table_items = sorted(table_items, key=lambda x: (x[1]["floor"] != preferred_floor, x[1]["capacity"]))
+            else:
+                table_items = sorted(table_items, key=lambda x: x[1]["capacity"])
             
-            for table_id, config in table_configs:
+            for table_id, config in table_items:
                 table_data = occupancy.get(table_id, {"booked_pax": 0})
                 remaining = config["capacity"] - table_data["booked_pax"]
                 if remaining >= pax:
                     remaining_after = remaining - pax
+                    # Relax the "best fit" logic if we found a table on the preferred floor
+                    if preferred_floor and config["floor"] == preferred_floor:
+                        best_table = table_id
+                        break 
+                    
                     if remaining_after < min_remaining_after:
                         min_remaining_after = remaining_after
                         best_table = table_id
@@ -137,7 +148,11 @@ class Database:
                 assigned_tables = [(best_table, pax)]
             else:
                 # NEW: Try to fit everyone on the SAME FLOOR first
-                floors = [2, 3] # Prioritize 2F then 3F
+                if preferred_floor:
+                    # Put preferred floor first
+                    floors = [preferred_floor] + [f for f in [1, 2, 3] if f != preferred_floor]
+                else:
+                    floors = [2, 3, 1] # Auto priority: 2F > 3F > 1F
                 floor_assigned = False
                 
                 for f in floors:
@@ -220,7 +235,7 @@ class Database:
             return f"{reservation_ref.id}|{all_tables_str}"
 
         try:
-            result = create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone)
+            result = create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone, preferred_floor)
             return result
         except Exception as e:
             if "overbooked" in str(e):

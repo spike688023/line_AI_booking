@@ -68,7 +68,7 @@ class ReservationQueryAgent(BaseAgent):
         is_available = await self.db.check_availability(date, time, pax)
         return "Table is available" if is_available else "Table is not available"
 
-    async def book_table(self, date: str, time: str, pax: int, name: str, phone: str, context: Dict[str, Any] = None):
+    async def book_table(self, date: str, time: str, pax: int, name: str, phone: str, floor: int = None, context: Dict[str, Any] = None):
         """Book a table."""
         # Check if the date is in the past
         from datetime import datetime
@@ -77,7 +77,7 @@ class ReservationQueryAgent(BaseAgent):
             return "Error: Cannot book for a past date."
             
         user_id = context.get("user_id", "unknown")
-        result = await self.db.create_reservation(user_id, date, time, pax, name, phone)
+        result = await self.db.create_reservation(user_id, date, time, pax, name, phone, preferred_floor=floor)
         
         if result == "overbooked":
             return "Sorry, that time slot is now full. Please choose another time."
@@ -281,6 +281,7 @@ class ReservationQueryAgent(BaseAgent):
                         pax=int(args["pax"]),
                         name=args["name"],
                         phone=args["phone"],
+                        floor=int(args.get("floor")) if args.get("floor") else None,
                         context=context
                     )
                 elif func_name == "get_my_reservations":
@@ -374,7 +375,8 @@ class ConversationAgent(BaseAgent):
                                 "time": {"type": "STRING", "description": "Time of reservation (HH:MM)"},
                                 "pax": {"type": "INTEGER", "description": "Number of people"},
                                 "name": {"type": "STRING", "description": "Customer Name"},
-                                "phone": {"type": "STRING", "description": "Customer Phone Number"}
+                                "phone": {"type": "STRING", "description": "Customer Phone Number"},
+                                "floor": {"type": "INTEGER", "description": "Preferred floor (1, 2, or 3). Optional."}
                             },
                             "required": ["date", "time", "pax", "name", "phone"]
                         }
