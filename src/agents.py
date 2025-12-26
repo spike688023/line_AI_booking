@@ -457,9 +457,11 @@ class ConversationAgent(BaseAgent):
 
         policy_str = f"""
         【Store Policy】
+        
         1. 1st Floor: Time limit 90 minutes. Minimum charge $200 per person.
-        2. 2nd Floor: No time limit (suitable for conversations). Minimum charge $200 per person.
-        3. No outside food or drinks.
+        2. 2nd Floor: No time limit. Suitable for conversations. Minimum charge $200 per person.
+        3. 3rd Floor: No time limit. Quiet zone (no chatting). Minimum charge $200 per person.
+        4. No outside food or drinks.
         
         【Business Hours】
         {hours_str}
