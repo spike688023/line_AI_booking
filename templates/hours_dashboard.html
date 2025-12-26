@@ -77,30 +77,7 @@
             <a href="/seating-map">Seating Map</a>
         </div>
 
-        <h1>🕒 Business Hours Settings</h1>
-
-        <form action="/admin/hours/update" method="post">
-            {% for day in days %}
-            <div class="day-row">
-                <div class="day-label">{{ day }}</div>
-                <input type="time" name="{{ day }}_open" value="{{ hours[day].open }}" class="time-input" {% if
-                    hours[day].closed %}disabled{% endif %}>
-                <span>to</span>
-                <input type="time" name="{{ day }}_close" value="{{ hours[day].close }}" class="time-input" {% if
-                    hours[day].closed %}disabled{% endif %}>
-
-                <label class="closed-check">
-                    <input type="checkbox" name="{{ day }}_closed" onchange="toggleInputs(this)" {% if hours[day].closed
-                        %}checked{% endif %}>
-                    <span class="checkable">Closed</span>
-                </label>
-            </div>
-            {% endfor %}
-
-            <button type="submit" class="success" style="width: 100%; margin-top: 20px;">Save Settings</button>
-        </form>
-
-        <h1 style="margin-top: 40px;">📅 Special Holiday Closures</h1>
+        <h1 style="margin-top: 0px;">📅 Special Holiday Closures</h1>
         <div style="background: #fff; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
             <p>Add specific dates when the shop will be closed (e.g., National Holidays).</p>
 
