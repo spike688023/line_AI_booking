@@ -419,46 +419,85 @@
 
                     {% for tid, tclass, cap, tstyle in tables_2f %}
                     {% set occ = occupied_tables.get(tid, {"booked_pax": 0, "bookings": []}) %}
-                    {% set status = 'status-available' %}
-                    {% if occ.booked_pax >= cap %}{% set status = 'status-full' %}
-                    {% elif occ.booked_pax > 0 %}{% set status = 'status-partial' %}{% endif %}
 
-                    <div class="table {{ tclass }} {{ status }}" style="{{ tstyle }}" id="{{ tid }}"
+                    <div class="table {{ tclass }}" style="{{ tstyle }}; background-color: white;" id="{{ tid }}"
                         data-res-ids='{{ occ.bookings | map(attribute="res_id") | join(",") }}'
                         onmouseenter="highlightGroup(this)" onmouseleave="clearHighlight()"
                         onclick='showDetails("{{ tid }}", {{ cap }}, {{ occ.booked_pax }}, {{ occ.bookings | tojson }})'>
                         {{ tid.split('-')[1] }}
                         {% set sm = occ.seat_map %}
+
+                        {# Helper macro or just repeated logic for chairs #}
+                        {# We inject background-color directly if occupied #}
+
                         {% if tclass == 't-1p' %}
-                        <div class="chair c-top {% if sm|length >= 1 %}occupied{% endif %}"
-                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
+                        {% set rid = sm[0] if sm|length >= 1 else '' %}
+                        <div class="chair c-top {% if rid %}occupied{% endif %}" data-res-id="{{ rid }}"
+                            style="{% if rid %}background-color: {{ res_id_color_map.get(rid, '#333') }}; border-color: {{ res_id_color_map.get(rid, '#333') }};{% endif %}">
+                        </div>
+
                         {% elif tclass == 't-2p' %}
-                        <div class="chair c-left {% if sm|length >= 1 %}occupied{% endif %}"
-                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
-                        <div class="chair c-right {% if sm|length >= 2 %}occupied{% endif %}"
-                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
+                        {% set rid0 = sm[0] if sm|length >= 1 else '' %}
+                        <div class="chair c-left {% if rid0 %}occupied{% endif %}" data-res-id="{{ rid0 }}"
+                            style="{% if rid0 %}background-color: {{ res_id_color_map.get(rid0) }}; border-color: {{ res_id_color_map.get(rid0) }};{% endif %}">
+                        </div>
+
+                        {% set rid1 = sm[1] if sm|length >= 2 else '' %}
+                        <div class="chair c-right {% if rid1 %}occupied{% endif %}" data-res-id="{{ rid1 }}"
+                            style="{% if rid1 %}background-color: {{ res_id_color_map.get(rid1) }}; border-color: {{ res_id_color_map.get(rid1) }};{% endif %}">
+                        </div>
+
                         {% elif tclass == 't-4p' %}
-                        <div class="chair c-top-1 {% if sm|length >= 1 %}occupied{% endif %}"
-                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
-                        <div class="chair c-top-3 {% if sm|length >= 2 %}occupied{% endif %}"
-                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
-                        <div class="chair c-bottom-1 {% if sm|length >= 3 %}occupied{% endif %}"
-                            data-res-id="{{ sm[2] if sm|length >= 3 else '' }}"></div>
-                        <div class="chair c-bottom-3 {% if sm|length >= 4 %}occupied{% endif %}"
-                            data-res-id="{{ sm[3] if sm|length >= 4 else '' }}"></div>
+                        {% set rid0 = sm[0] if sm|length >= 1 else '' %}
+                        <div class="chair c-top-1 {% if rid0 %}occupied{% endif %}" data-res-id="{{ rid0 }}"
+                            style="{% if rid0 %}background-color: {{ res_id_color_map.get(rid0) }}; border-color: {{ res_id_color_map.get(rid0) }};{% endif %}">
+                        </div>
+
+                        {% set rid1 = sm[1] if sm|length >= 2 else '' %}
+                        <div class="chair c-top-3 {% if rid1 %}occupied{% endif %}" data-res-id="{{ rid1 }}"
+                            style="{% if rid1 %}background-color: {{ res_id_color_map.get(rid1) }}; border-color: {{ res_id_color_map.get(rid1) }};{% endif %}">
+                        </div>
+
+                        {% set rid2 = sm[2] if sm|length >= 3 else '' %}
+                        <div class="chair c-bottom-1 {% if rid2 %}occupied{% endif %}" data-res-id="{{ rid2 }}"
+                            style="{% if rid2 %}background-color: {{ res_id_color_map.get(rid2) }}; border-color: {{ res_id_color_map.get(rid2) }};{% endif %}">
+                        </div>
+
+                        {% set rid3 = sm[3] if sm|length >= 4 else '' %}
+                        <div class="chair c-bottom-3 {% if rid3 %}occupied{% endif %}" data-res-id="{{ rid3 }}"
+                            style="{% if rid3 %}background-color: {{ res_id_color_map.get(rid3) }}; border-color: {{ res_id_color_map.get(rid3) }};{% endif %}">
+                        </div>
+
                         {% elif tclass == 't-6p' %}
-                        <div class="chair c-top-1 {% if sm|length >= 1 %}occupied{% endif %}"
-                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
-                        <div class="chair c-top-2 {% if sm|length >= 2 %}occupied{% endif %}"
-                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
-                        <div class="chair c-top-3 {% if sm|length >= 3 %}occupied{% endif %}"
-                            data-res-id="{{ sm[2] if sm|length >= 3 else '' }}"></div>
-                        <div class="chair c-bottom-1 {% if sm|length >= 4 %}occupied{% endif %}"
-                            data-res-id="{{ sm[3] if sm|length >= 4 else '' }}"></div>
-                        <div class="chair c-bottom-2 {% if sm|length >= 5 %}occupied{% endif %}"
-                            data-res-id="{{ sm[4] if sm|length >= 5 else '' }}"></div>
-                        <div class="chair c-bottom-3 {% if sm|length >= 6 %}occupied{% endif %}"
-                            data-res-id="{{ sm[5] if sm|length >= 6 else '' }}"></div>
+                        {% set rid0 = sm[0] if sm|length >= 1 else '' %}
+                        <div class="chair c-top-1 {% if rid0 %}occupied{% endif %}" data-res-id="{{ rid0 }}"
+                            style="{% if rid0 %}background-color: {{ res_id_color_map.get(rid0) }}; border-color: {{ res_id_color_map.get(rid0) }};{% endif %}">
+                        </div>
+
+                        {% set rid1 = sm[1] if sm|length >= 2 else '' %}
+                        <div class="chair c-top-2 {% if rid1 %}occupied{% endif %}" data-res-id="{{ rid1 }}"
+                            style="{% if rid1 %}background-color: {{ res_id_color_map.get(rid1) }}; border-color: {{ res_id_color_map.get(rid1) }};{% endif %}">
+                        </div>
+
+                        {% set rid2 = sm[2] if sm|length >= 3 else '' %}
+                        <div class="chair c-top-3 {% if rid2 %}occupied{% endif %}" data-res-id="{{ rid2 }}"
+                            style="{% if rid2 %}background-color: {{ res_id_color_map.get(rid2) }}; border-color: {{ res_id_color_map.get(rid2) }};{% endif %}">
+                        </div>
+
+                        {% set rid3 = sm[3] if sm|length >= 4 else '' %}
+                        <div class="chair c-bottom-1 {% if rid3 %}occupied{% endif %}" data-res-id="{{ rid3 }}"
+                            style="{% if rid3 %}background-color: {{ res_id_color_map.get(rid3) }}; border-color: {{ res_id_color_map.get(rid3) }};{% endif %}">
+                        </div>
+
+                        {% set rid4 = sm[4] if sm|length >= 5 else '' %}
+                        <div class="chair c-bottom-2 {% if rid4 %}occupied{% endif %}" data-res-id="{{ rid4 }}"
+                            style="{% if rid4 %}background-color: {{ res_id_color_map.get(rid4) }}; border-color: {{ res_id_color_map.get(rid4) }};{% endif %}">
+                        </div>
+
+                        {% set rid5 = sm[5] if sm|length >= 6 else '' %}
+                        <div class="chair c-bottom-3 {% if rid5 %}occupied{% endif %}" data-res-id="{{ rid5 }}"
+                            style="{% if rid5 %}background-color: {{ res_id_color_map.get(rid5) }}; border-color: {{ res_id_color_map.get(rid5) }};{% endif %}">
+                        </div>
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -483,66 +522,105 @@
 
                     {% for tid, tclass, cap, tstyle in tables_3f %}
                     {% set occ = occupied_tables.get(tid, {"booked_pax": 0, "bookings": []}) %}
-                    {% set status = 'status-available' %}
-                    {% if occ.booked_pax >= cap %}{% set status = 'status-full' %}
-                    {% elif occ.booked_pax > 0 %}{% set status = 'status-partial' %}{% endif %}
 
-                    <div class="table {{ tclass }} {{ status }}" style="{{ tstyle }}" id="{{ tid }}"
+                    <div class="table {{ tclass }}" style="{{ tstyle }}; background-color: white;" id="{{ tid }}"
                         data-res-ids='{{ occ.bookings | map(attribute="res_id") | join(",") }}'
                         onmouseenter="highlightGroup(this)" onmouseleave="clearHighlight()"
                         onclick='showDetails("{{ tid }}", {{ cap }}, {{ occ.booked_pax }}, {{ occ.bookings | tojson }})'>
                         {{ tid.split('-')[1] }}
                         {% set sm = occ.seat_map %}
+
+                        {# Helper macro or just repeated logic for chairs #}
+                        {# We inject background-color directly if occupied #}
+
                         {% if tclass == 't-1p' %}
-                        <div class="chair c-top {% if sm|length >= 1 %}occupied{% endif %}"
-                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
+                        {% set rid = sm[0] if sm|length >= 1 else '' %}
+                        <div class="chair c-top {% if rid %}occupied{% endif %}" data-res-id="{{ rid }}"
+                            style="{% if rid %}background-color: {{ res_id_color_map.get(rid, '#333') }}; border-color: {{ res_id_color_map.get(rid, '#333') }};{% endif %}">
+                        </div>
+
                         {% elif tclass == 't-2p' %}
-                        <div class="chair c-left {% if sm|length >= 1 %}occupied{% endif %}"
-                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
-                        <div class="chair c-right {% if sm|length >= 2 %}occupied{% endif %}"
-                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
+                        {% set rid0 = sm[0] if sm|length >= 1 else '' %}
+                        <div class="chair c-left {% if rid0 %}occupied{% endif %}" data-res-id="{{ rid0 }}"
+                            style="{% if rid0 %}background-color: {{ res_id_color_map.get(rid0) }}; border-color: {{ res_id_color_map.get(rid0) }};{% endif %}">
+                        </div>
+
+                        {% set rid1 = sm[1] if sm|length >= 2 else '' %}
+                        <div class="chair c-right {% if rid1 %}occupied{% endif %}" data-res-id="{{ rid1 }}"
+                            style="{% if rid1 %}background-color: {{ res_id_color_map.get(rid1) }}; border-color: {{ res_id_color_map.get(rid1) }};{% endif %}">
+                        </div>
+
                         {% elif tclass == 't-4p' %}
-                        <div class="chair c-top-1 {% if sm|length >= 1 %}occupied{% endif %}"
-                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
-                        <div class="chair c-top-3 {% if sm|length >= 2 %}occupied{% endif %}"
-                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
-                        <div class="chair c-bottom-1 {% if sm|length >= 3 %}occupied{% endif %}"
-                            data-res-id="{{ sm[2] if sm|length >= 3 else '' }}"></div>
-                        <div class="chair c-bottom-3 {% if sm|length >= 4 %}occupied{% endif %}"
-                            data-res-id="{{ sm[3] if sm|length >= 4 else '' }}"></div>
+                        {% set rid0 = sm[0] if sm|length >= 1 else '' %}
+                        <div class="chair c-top-1 {% if rid0 %}occupied{% endif %}" data-res-id="{{ rid0 }}"
+                            style="{% if rid0 %}background-color: {{ res_id_color_map.get(rid0) }}; border-color: {{ res_id_color_map.get(rid0) }};{% endif %}">
+                        </div>
+
+                        {% set rid1 = sm[1] if sm|length >= 2 else '' %}
+                        <div class="chair c-top-3 {% if rid1 %}occupied{% endif %}" data-res-id="{{ rid1 }}"
+                            style="{% if rid1 %}background-color: {{ res_id_color_map.get(rid1) }}; border-color: {{ res_id_color_map.get(rid1) }};{% endif %}">
+                        </div>
+
+                        {% set rid2 = sm[2] if sm|length >= 3 else '' %}
+                        <div class="chair c-bottom-1 {% if rid2 %}occupied{% endif %}" data-res-id="{{ rid2 }}"
+                            style="{% if rid2 %}background-color: {{ res_id_color_map.get(rid2) }}; border-color: {{ res_id_color_map.get(rid2) }};{% endif %}">
+                        </div>
+
+                        {% set rid3 = sm[3] if sm|length >= 4 else '' %}
+                        <div class="chair c-bottom-3 {% if rid3 %}occupied{% endif %}" data-res-id="{{ rid3 }}"
+                            style="{% if rid3 %}background-color: {{ res_id_color_map.get(rid3) }}; border-color: {{ res_id_color_map.get(rid3) }};{% endif %}">
+                        </div>
+
                         {% elif tclass == 't-6p' %}
-                        <div class="chair c-top-1 {% if sm|length >= 1 %}occupied{% endif %}"
-                            data-res-id="{{ sm[0] if sm|length >= 1 else '' }}"></div>
-                        <div class="chair c-top-2 {% if sm|length >= 2 %}occupied{% endif %}"
-                            data-res-id="{{ sm[1] if sm|length >= 2 else '' }}"></div>
-                        <div class="chair c-top-3 {% if sm|length >= 3 %}occupied{% endif %}"
-                            data-res-id="{{ sm[2] if sm|length >= 3 else '' }}"></div>
-                        <div class="chair c-bottom-1 {% if sm|length >= 4 %}occupied{% endif %}"
-                            data-res-id="{{ sm[3] if sm|length >= 4 else '' }}"></div>
-                        <div class="chair c-bottom-2 {% if sm|length >= 5 %}occupied{% endif %}"
-                            data-res-id="{{ sm[4] if sm|length >= 5 else '' }}"></div>
-                        <div class="chair c-bottom-3 {% if sm|length >= 6 %}occupied{% endif %}"
-                            data-res-id="{{ sm[5] if sm|length >= 6 else '' }}"></div>
+                        {% set rid0 = sm[0] if sm|length >= 1 else '' %}
+                        <div class="chair c-top-1 {% if rid0 %}occupied{% endif %}" data-res-id="{{ rid0 }}"
+                            style="{% if rid0 %}background-color: {{ res_id_color_map.get(rid0) }}; border-color: {{ res_id_color_map.get(rid0) }};{% endif %}">
+                        </div>
+
+                        {% set rid1 = sm[1] if sm|length >= 2 else '' %}
+                        <div class="chair c-top-2 {% if rid1 %}occupied{% endif %}" data-res-id="{{ rid1 }}"
+                            style="{% if rid1 %}background-color: {{ res_id_color_map.get(rid1) }}; border-color: {{ res_id_color_map.get(rid1) }};{% endif %}">
+                        </div>
+
+                        {% set rid2 = sm[2] if sm|length >= 3 else '' %}
+                        <div class="chair c-top-3 {% if rid2 %}occupied{% endif %}" data-res-id="{{ rid2 }}"
+                            style="{% if rid2 %}background-color: {{ res_id_color_map.get(rid2) }}; border-color: {{ res_id_color_map.get(rid2) }};{% endif %}">
+                        </div>
+
+                        {% set rid3 = sm[3] if sm|length >= 4 else '' %}
+                        <div class="chair c-bottom-1 {% if rid3 %}occupied{% endif %}" data-res-id="{{ rid3 }}"
+                            style="{% if rid3 %}background-color: {{ res_id_color_map.get(rid3) }}; border-color: {{ res_id_color_map.get(rid3) }};{% endif %}">
+                        </div>
+
+                        {% set rid4 = sm[4] if sm|length >= 5 else '' %}
+                        <div class="chair c-bottom-2 {% if rid4 %}occupied{% endif %}" data-res-id="{{ rid4 }}"
+                            style="{% if rid4 %}background-color: {{ res_id_color_map.get(rid4) }}; border-color: {{ res_id_color_map.get(rid4) }};{% endif %}">
+                        </div>
+
+                        {% set rid5 = sm[5] if sm|length >= 6 else '' %}
+                        <div class="chair c-bottom-3 {% if rid5 %}occupied{% endif %}" data-res-id="{{ rid5 }}"
+                            style="{% if rid5 %}background-color: {{ res_id_color_map.get(rid5) }}; border-color: {{ res_id_color_map.get(rid5) }};{% endif %}">
+                        </div>
                         {% endif %}
                     </div>
                     {% endfor %}
                 </div>
             </div>
 
-            <div class="legend">
-                <div class="legend-item">
-                    <div class="dot" style="background: #e8f8f5; border-color: #2ecc71;"></div> Available
-                </div>
-                <div class="legend-item">
-                    <div class="dot" style="background: #fff4e5; border-color: #f39c12;"></div> Partial
-                </div>
-                <div class="legend-item">
-                    <div class="dot" style="background: #fdedec; border-color: #e74c3c;"></div> Full
-                </div>
-            </div>
-
-            <a href="/admin" class="back-link">← Back to Admin Dashboard</a>
         </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="dot" style="background: white; border: 2px solid #555;"></div> Available
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="background: #e57373; border: 2px solid #e57373;"></div>
+                <div class="dot" style="background: #64b5f6; border: 2px solid #64b5f6; margin-left: -10px;"></div>
+                <span style="margin-left: 5px;">Occupied (Colors distinguish different groups)</span>
+            </div>
+        </div>
+
+        <a href="/admin" class="back-link">← Back to Admin Dashboard</a>
 
         <!-- Modal -->
         <div id="detailsModal" class="modal">

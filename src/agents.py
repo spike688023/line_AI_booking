@@ -102,14 +102,16 @@ class ReservationQueryAgent(BaseAgent):
         message = (
             f"🎉 預約成功！\n\n"
             f"📅 日期：{date}\n"
-            f"⏰ 抵達時間：{time}\n"
-            f"👥 人數：{pax} 位\n"
-            f"📍 安排桌號：{table_display}\n"
-            f"🆔 訂單編號：{res_id}\n"
-            f"{seating_note}\n"
-            f"🗺️ 查看座位位置：\n"
+            f"⏰ 時間：{time}\n"
+            f"👥 人數：{pax} 位\n\n"
+            f"👤 姓名：{name}\n"
+            f"📞 電話：{phone}\n\n"
+            f"📍 桌號：{table_display}\n"
+            f"🆔 訂位代號：{res_id}\n"
+            f"{seating_note}\n\n"
+            f"🗺️ 座位圖：\n"
             f"https://coffee-shop-agent-416902381938.asia-east1.run.app/seating-map?date={date}\n\n"
-            f"💡 溫馨提示：本店不限用餐時間。若該桌位較大，可能會與其他客人共享桌位，感謝您的理解！"
+            f"💡 溫馨提示：本店不限用餐時間（一樓除外）。若為大桌，可能會與其他客人共享，感謝您的理解！"
         )
         return message
 
@@ -440,6 +442,13 @@ class ConversationAgent(BaseAgent):
     async def process(self, input_text: str, context: Dict[str, Any] = None) -> str:
         logger.info(f"Processing input with LLM: {input_text}")
         user_id = context.get("user_id", "unknown_user")
+
+        # Quick exit for ending conversation to save tokens and avoid errors
+        end_phrases = ["沒有", "沒有了", "沒了", "就這樣", "掰掰", "bye", "nothing else", "no"]
+        if input_text.strip().lower() in end_phrases:
+            if user_id in self.chat_histories:
+                del self.chat_histories[user_id]
+            return "好的，期待您的光臨！"
         
         # Fetch Menu
         menu_items = await db.get_menu()
@@ -457,11 +466,18 @@ class ConversationAgent(BaseAgent):
 
         policy_str = f"""
         【Store Policy】
+        No outside food or drinks.
         
-        1. 1st Floor: Time limit 90 minutes. Minimum charge $200 per person.
-        2. 2nd Floor: No time limit. Suitable for conversations. Minimum charge $200 per person.
-        3. 3rd Floor: No time limit. Quiet zone (no chatting). Minimum charge $200 per person.
-        4. No outside food or drinks.
+        【Floor Guide】
+        
+        1. 1st Floor: 
+           Time limit 90 minutes. Minimum charge $200 per person.
+           
+        2. 2nd Floor: 
+           No time limit. Suitable for conversations. Minimum charge $200 per person.
+           
+        3. 3rd Floor: 
+           No time limit. Quiet zone (no chatting). Minimum charge $200 per person.
         
         【Business Hours】
         {hours_str}

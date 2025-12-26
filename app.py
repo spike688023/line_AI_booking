@@ -44,18 +44,36 @@ async def seating_map(request: Request, date: str = None):
         
     occupied_tables = await db.get_daily_occupied_tables(date)
     
-    # Pre-process seat assignments for the template
+    # Pre-process seat assignments and generate colors for groups
+    unique_res_ids = set()
     for tid, data in occupied_tables.items():
         seat_map = []
         for b in data.get("bookings", []):
+            res_id = b.get("res_id", "")
+            if res_id: unique_res_ids.add(res_id)
             for _ in range(b.get("pax", 0)):
-                seat_map.append(b.get("res_id", ""))
+                seat_map.append(res_id)
         data["seat_map"] = seat_map
+    
+    # Assign distinct colors to each reservation group
+    # Palette of distinct colors (from material design / distinct palettes)
+    palette = [
+        "#e57373", "#f06292", "#ba68c8", "#9575cd", "#7986cb", 
+        "#64b5f6", "#4fc3f7", "#4dd0e1", "#4db6ac", "#81c784",
+        "#aed581", "#dce775", "#fff176", "#ffd54f", "#ffb74d",
+        "#ff8a65", "#a1887f", "#90a4ae", "#f48fb1", "#ce93d8"
+    ]
+    
+    res_id_color_map = {}
+    sorted_ids = sorted(list(unique_res_ids))
+    for i, res_id in enumerate(sorted_ids):
+        res_id_color_map[res_id] = palette[i % len(palette)]
     
     return templates.TemplateResponse("seating_map.html", {
         "request": request,
         "date": date,
-        "occupied_tables": occupied_tables
+        "occupied_tables": occupied_tables,
+        "res_id_color_map": res_id_color_map
     })
 
 # Admin Configuration
