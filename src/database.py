@@ -81,11 +81,14 @@ class Database:
         try:
             occupancy = await self.get_daily_occupied_tables(date)
             
+            # Check if total remaining capacity is enough for the group (allowing split tables)
+            total_remaining = 0
             for table_id, config in self.TABLE_CONFIG.items():
                 table_data = occupancy.get(table_id, {"booked_pax": 0})
-                remaining = config["capacity"] - table_data["booked_pax"]
-                if remaining >= pax:
-                    return True
+                total_remaining += (config["capacity"] - table_data["booked_pax"])
+            
+            if total_remaining >= pax:
+                return True
             
             return False
         except Exception as e:
@@ -176,7 +179,12 @@ class Database:
 
             # 4. Create the reservation
             primary_table = assigned_tables[0][0]
-            all_tables_str = ", ".join([t[0] for t in assigned_tables])
+            all_tables_list = [t[0] for t in assigned_tables]
+            all_tables_str = ", ".join(all_tables_list)
+            
+            # Generate a human-readable seating summary
+            # e.g., "2F-B1 (6p), 2F-A1 (1p)" -> "one 6-person table and one 1-person seat on 2F"
+            # This is complex to generate perfectly here, let's return the raw list and let the Agent format it.
             
             reservation_data = {
                 "user_id": user_id,
@@ -634,6 +642,45 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to get business hours: {e}")
             return {}
+
+    async def get_special_closures(self) -> List[str]:
+        """Get list of special closure dates (YYYY-MM-DD)."""
+        if not self.client:
+            return []
+        
+        try:
+            doc = self.client.collection("config").document("special_closures").get()
+            if doc.exists:
+                return doc.to_dict().get("dates", [])
+            else:
+                return []
+        except Exception as e:
+            logger.error(f"Failed to get special closures: {e}")
+            return []
+
+    async def add_special_closure(self, date: str):
+        """Add a special closure date."""
+        if not self.client: return
+        
+        try:
+            current = await self.get_special_closures()
+            if date not in current:
+                current.append(date)
+                self.client.collection("config").document("special_closures").set({"dates": current})
+        except Exception as e:
+            logger.error(f"Failed to add special closure: {e}")
+
+    async def remove_special_closure(self, date: str):
+        """Remove a special closure date."""
+        if not self.client: return
+        
+        try:
+            current = await self.get_special_closures()
+            if date in current:
+                current.remove(date)
+                self.client.collection("config").document("special_closures").set({"dates": current})
+        except Exception as e:
+            logger.error(f"Failed to remove special closure: {e}")
 
     async def get_notification_settings(self) -> Dict[str, Any]:
         """

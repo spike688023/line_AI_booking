@@ -99,6 +99,32 @@
 
             <button type="submit" class="success" style="width: 100%; margin-top: 20px;">Save Settings</button>
         </form>
+
+        <h1 style="margin-top: 40px;">📅 Special Holiday Closures</h1>
+        <div style="background: #fff; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+            <p>Add specific dates when the shop will be closed (e.g., National Holidays).</p>
+
+            <!-- List existing closures -->
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
+                {% for date in special_closures %}
+                <div
+                    style="background: #ffebee; color: #c62828; padding: 5px 10px; border-radius: 20px; display: flex; align-items: center; gap: 8px;">
+                    <strong>{{ date }}</strong>
+                    <form action="/admin/closures/remove" method="post" style="display: inline;">
+                        <input type="hidden" name="date" value="{{ date }}">
+                        <button type="submit"
+                            style="background: none; border: none; cursor: pointer; color: #c62828; font-size: 16px; padding: 0;">&times;</button>
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Add new closure -->
+            <form action="/admin/closures/add" method="post" style="display: flex; gap: 10px; align-items: center;">
+                <input type="date" name="date" required>
+                <button type="submit" class="pseudo">Add Closure Date</button>
+            </form>
+        </div>
     </div>
 
     <script>

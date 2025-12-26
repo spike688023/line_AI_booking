@@ -38,6 +38,11 @@ class ReservationQueryAgent(BaseAgent):
         current_date = datetime.now().strftime("%Y-%m-%d")
         if date < current_date:
             return "Error: Cannot book for a past date."
+            
+        # 1.5 Check Special Closures (Holidays)
+        special_closures = await self.db.get_special_closures()
+        if date in special_closures:
+            return "Sorry, we are closed on this date for a special holiday/event."
 
         # 2. Check Business Hours
         try:
@@ -80,16 +85,28 @@ class ReservationQueryAgent(BaseAgent):
             return "Sorry, something went wrong with the reservation. Please try again later."
             
         # Parse result (format: "reservation_id|table_id")
-        res_id, table_id = result.split("|")
+        parts = result.split("|")
+        res_id = parts[0]
+        table_str = parts[1] if len(parts) > 1 else "Unknown"
         
+        # Format table info
+        table_display = table_str
+        seating_note = ""
+        if "," in table_str:
+            tables = table_str.split(", ")
+            count = len(tables)
+            table_display = f"{table_str} (共{count}桌)"
+            seating_note = f"\n⚠️ 座位說明：依據人數為您安排了 {count} 張鄰近桌位，皆位於同一樓層。"
+
         # Construct a nice Chinese confirmation message
         message = (
             f"🎉 預約成功！\n\n"
             f"📅 日期：{date}\n"
             f"⏰ 抵達時間：{time}\n"
             f"👥 人數：{pax} 位\n"
-            f"📍 安排桌號：{table_id}\n"
-            f"🆔 訂單編號：{res_id}\n\n"
+            f"📍 安排桌號：{table_display}\n"
+            f"🆔 訂單編號：{res_id}\n"
+            f"{seating_note}\n"
             f"🗺️ 查看座位位置：\n"
             f"https://coffee-shop-agent-416902381938.asia-east1.run.app/seating-map?date={date}\n\n"
             f"💡 溫馨提示：本店不限用餐時間。若該桌位較大，可能會與其他客人共享桌位，感謝您的理解！"
@@ -203,8 +220,27 @@ class ReservationQueryAgent(BaseAgent):
                 
                 is_available = await self.db.check_availability(date, time, pax)
                 if is_available:
-                    reservation_id = await self.db.create_reservation(user_id, date, time, pax, name, phone)
-                    return get_msg("book_success", name=name, reservation_id=reservation_id, date=date, time=time, pax=pax)
+                    res_result = await self.db.create_reservation(user_id, date, time, pax, name, phone)
+                    
+                    # Parse result: "res_id|table1, table2..."
+                    if "|" in res_result:
+                        reservation_id, table_str = res_result.split("|")
+                    else:
+                        reservation_id = res_result
+                        table_str = ""
+
+                    # Generate Seating Explanation
+                    seating_note = ""
+                    if table_str:
+                        tables = table_str.split(", ")
+                        if len(tables) > 1:
+                            # Split seating logic
+                            seating_note = f"\n\n⚠️ 座位安排說明：由於人多，我們為您安排了 {len(tables)} 張桌子 ({table_str})，都在同一樓層，請不用擔心。"
+                        else:
+                            seating_note = f"\n桌號: {tables[0]}"
+
+                    msg = get_msg("book_success", name=name, reservation_id=reservation_id, date=date, time=time, pax=pax)
+                    return msg + seating_note
                 else:
                     return get_msg("book_unavailable")
             except ValueError:
@@ -394,7 +430,7 @@ class ConversationAgent(BaseAgent):
             }
         ]
         
-        self.model = genai.GenerativeModel('gemini-2.0-flash', tools=self.tools)
+        self.model = genai.GenerativeModel('gemini-1.5-pro', tools=self.tools)
         # Simple in-memory history: {user_id: [history]}
         # In production, use Firestore or Redis
         self.chat_histories = {}
@@ -441,10 +477,30 @@ class ConversationAgent(BaseAgent):
         from datetime import datetime
         current_date = datetime.now().strftime("%Y-%m-%d")
         
+        # Fetch User Info from past reservations to avoid asking again
+        user_info_str = ""
+        try:
+            past_reservations = await db.get_user_reservations(user_id, include_past=True)
+            if past_reservations:
+                # Use the most recent entry that has name/phone
+                latest_with_name = next((r for r in reversed(past_reservations) if r.get("name")), None)
+                latest_with_phone = next((r for r in reversed(past_reservations) if r.get("phone")), None)
+                u_name = latest_with_name.get("name") if latest_with_name else None
+                u_phone = latest_with_phone.get("phone") if latest_with_phone else None
+                
+                if u_name or u_phone:
+                    user_info_str = "【Known User Information】\n"
+                    if u_name: user_info_str += f"- Name: {u_name}\n"
+                    if u_phone: user_info_str += f"- Phone: {u_phone}\n"
+        except Exception as e:
+            logger.error(f"Error fetching user info for context: {e}")
+
         system_prompt = f"""
         You are a helpful Coffee Shop Assistant at a cafe.
         
         Current Date: {current_date}
+        
+        {user_info_str}
         
         {policy_str}
         
@@ -457,12 +513,15 @@ class ConversationAgent(BaseAgent):
         3. Conversational Flow:
            - If the user says "No" or "Nothing else" (e.g., "沒有了", "沒問題"), politely close the conversation (e.g., "Great! Looking forward to seeing you.", "好的，期待您的光臨！") without asking "Is there anything else?".
            - Only ask "Is there anything else?" if the user's intent is unclear or after completing a task.
-        4. Actions:
+        4. User Identity (AVOID REPETITION):
+           - If you already have the user's Name and Phone (from 【Known User Information】 or the chat history), DO NOT ask for them again. 
+           - You can simply confirm like: "好的，依然是陳先生您的訂位嗎？" or use them directly.
+        5. Actions:
            - If the user wants to Book, Order, or Pay, call the appropriate function.
            - If information is missing (e.g. phone number for booking), ASK for it politely.
-        5. Modifications:
+        6. Modifications:
            - If the user wants to modify a reservation, first use 'get_my_reservations' to show them what they have, then use 'modify_reservation' if they confirm.
-        6. Split Seating Warning:
+        7. Split Seating Warning:
            - If a booking is for more than 6 people, you MUST inform the user that they will be split across multiple tables.
            - Reassure them that the tables will be on the SAME FLOOR to keep the group together.
            - Example: "由於您的團體人數較多（8位），我們將為您安排在同一樓層的兩張相鄰桌位，方便您們互相照應。"

@@ -222,11 +222,13 @@ async def hours_dashboard(request: Request):
     
     hours = await db.get_business_hours()
     days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    special_closures = await db.get_special_closures()
     
     return templates.TemplateResponse("hours_dashboard.html", {
         "request": request,
         "hours": hours,
-        "days": days
+        "days": days,
+        "special_closures": sorted(special_closures)
     })
 
 @app.post("/admin/hours/update")
@@ -247,6 +249,20 @@ async def update_hours(request: Request):
         }
     
     await db.update_business_hours(new_hours)
+    return RedirectResponse(url="/admin/hours", status_code=303)
+
+@app.post("/admin/closures/add")
+async def add_closure(request: Request, date: str = Form(...)):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    await db.add_special_closure(date)
+    return RedirectResponse(url="/admin/hours", status_code=303)
+
+@app.post("/admin/closures/remove")
+async def remove_closure(request: Request, date: str = Form(...)):
+    if request.cookies.get("admin_session") != "logged_in":
+        return RedirectResponse(url="/admin")
+    await db.remove_special_closure(date)
     return RedirectResponse(url="/admin/hours", status_code=303)
 
 # --- Notification Settings Routes ---
