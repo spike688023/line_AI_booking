@@ -430,7 +430,7 @@ class ConversationAgent(BaseAgent):
             }
         ]
         
-        self.model = genai.GenerativeModel('gemini-1.5-pro', tools=self.tools)
+        self.model = genai.GenerativeModel('gemini-2.0-flash', tools=self.tools)
         # Simple in-memory history: {user_id: [history]}
         # In production, use Firestore or Redis
         self.chat_histories = {}
