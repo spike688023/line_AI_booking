@@ -36,7 +36,7 @@ graph TD
         DB <--> Firestore[(Google Cloud Firestore)]
     end
     
-    classDef file fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef file fill:#d1e8ff,stroke:#333,stroke-width:2px;
     class App,AgentMgr,DB file;
 ```
 
