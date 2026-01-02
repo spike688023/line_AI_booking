@@ -37,7 +37,7 @@ graph TD
     end
     
     classDef file fill:#000000,color:#ffffff,stroke:#ffffff,stroke-width:2px;
-    class App,AgentMgr,DB file;
+    class User,LINE,App,AgentMgr,Templates,Gemini,DB,Firestore file;
 ```
 
 ---
