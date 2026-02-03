@@ -434,6 +434,17 @@ class ConversationAgent(BaseAgent):
                             },
                             "required": ["order_id"]
                         }
+                    },
+                    {
+                        "name": "render_floor_guide",
+                        "description": "Show floor information and ask for preference. MANDATORY: You MUST call this tool whenever you need to ask the user about their floor preference.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "context_msg": {"type": "STRING", "description": "Optional opening message context, e.g., 'Okay, 4 people at 2pm.'"}
+                            },
+                            "required": []
+                        }
                     }
                 ]
             }
@@ -545,6 +556,7 @@ class ConversationAgent(BaseAgent):
         5. Actions:
            - If the user wants to Book, Order, or Pay, call the appropriate function.
            - If information is missing (e.g. phone number for booking), ASK for it politely.
+           - **CRITICAL**: When you need to ask for the user's **floor preference**, you MUST call the `render_floor_guide` tool. DO NOT write the floor options yourself.
         6. Modifications:
            - If the user wants to modify a reservation, first use 'get_my_reservations' to show them what they have, then use 'modify_reservation' if they confirm.
         7. Split Seating Warning:
@@ -645,6 +657,17 @@ class ConversationAgent(BaseAgent):
                 elif func_name == "check_payment":
                     command = f"Pay {args['order_id']}"
                     return await self.payment_agent.process(command, context, language=current_lang)
+                
+                elif func_name == "render_floor_guide":
+                    intro = args.get("context_msg", "請問您有偏好的樓層嗎？")
+                    msg = (
+                        f"{intro}\n\n"
+                        f"1樓：90分鐘用餐時間限制\n"
+                        f"2樓：無時間限制，適合聊天\n"
+                        f"3樓：無時間限制，安靜區（禁止聊天）"
+                    )
+                    logger.info(f"[TOOL_RESPONSE] render_floor_guide called. Returning formatted string.")
+                    return msg
                 
                 else:
                     # Unknown function call
