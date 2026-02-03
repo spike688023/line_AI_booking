@@ -555,6 +555,11 @@ class ConversationAgent(BaseAgent):
            - Use line breaks (newlines) freely to separate different topics or key information.
            - Avoid long, dense paragraphs. 
            - When listing options or confirming details, use bullet points or separate lines.
+           - **When mentioning floor information, ALWAYS use separate lines for each floor**. Example:
+             "請問有偏好的樓層嗎？
+             1樓：90分鐘用餐時間限制
+             2樓：無時間限制，適合聊天
+             3樓：無時間限制，安靜區（禁止聊天）"
         9. **Tool Response Handling (CRITICAL)**:
            - When a tool (like book_table) returns a complete formatted message (e.g., with emojis, booking details, table number, confirmation code), you MUST return that EXACT message to the user WITHOUT modification.
            - DO NOT summarize, rephrase, or omit any details from tool responses.
