@@ -68,7 +68,7 @@ class ReservationQueryAgent(BaseAgent):
         is_available = await self.db.check_availability(date, time, pax)
         return "Table is available" if is_available else "Table is not available"
 
-    async def book_table(self, date: str, time: str, pax: int, name: str, phone: str, floor: int = None, context: Dict[str, Any] = None):
+    async def book_table(self, date: str, time: str, pax: int, name: str, phone: str, floor: int = None, allow_split: bool = False, context: Dict[str, Any] = None):
         """Book a table."""
         # Check if the date is in the past
         from datetime import datetime
@@ -77,7 +77,27 @@ class ReservationQueryAgent(BaseAgent):
             return "Error: Cannot book for a past date."
             
         user_id = context.get("user_id", "unknown")
-        result = await self.db.create_reservation(user_id, date, time, pax, name, phone, preferred_floor=floor)
+        
+        # Check specific floor availability BEFORE booking if a preference is given
+        if floor:
+            available_floors = await self.db.get_available_floors(date, time, pax)
+            if floor not in available_floors:
+                if available_floors:
+                    # Provide alternative options
+                    alt_floors = ", ".join([f"{f}F" for f in available_floors])
+                    suggested_floor = available_floors[0]
+                    return f"SYSTEM_NOTICE: The requested {floor}F is full. DO NOT BOOK YET. Please ask the user: '抱歉，{floor}樓目前客滿，但 {suggested_floor}樓還有位子（目前可用：{alt_floors}），請問您可以接受嗎？'"
+                else:
+                    # If allow_split is TRUE, we might be able to fit them split.
+                    # But get_available_floors checks SINGLE floor capacity.
+                    # If this is empty, it means NO single floor can hold them.
+                    # In this case, we fall through to create_reservation which will try split if allow_split is True.
+                    pass
+
+        result = await self.db.create_reservation(user_id, date, time, pax, name, phone, preferred_floor=floor, allow_split_floor=allow_split)
+        
+        if result == "split_floor_required":
+            return "SYSTEM_NOTICE: Cannot fit everyone on a single floor. DO NOT BOOK YET. Please ask the user: '抱歉，目前單一樓層沒有足夠的位子，我們需要將您們分開安排在不同樓層（例如 2F 和 3F），請問您可以接受拆桌且跨樓層嗎？'"
         
         if result == "overbooked":
             return "Sorry, that time slot is now full. Please choose another time."
@@ -92,11 +112,21 @@ class ReservationQueryAgent(BaseAgent):
         # Format table info
         table_display = table_str
         seating_note = ""
+        
+        # Determine assigned floor from table_str (e.g., "3F-A1")
+        import re
+        floor_match = re.search(r"(\d+)F", table_str)
+        assigned_floor = int(floor_match.group(1)) if floor_match else None
+        
+        # Check for floor mismatch (Safeguard for race conditions)
+        if floor and assigned_floor and floor != assigned_floor:
+            seating_note += f"\n⚠️ 樓層調整通知：抱歉，原本為您保留的 {floor} 樓座位剛剛已滿，已為您改安排至 {assigned_floor} 樓，敬請見諒。"
+
         if "," in table_str:
             tables = table_str.split(", ")
             count = len(tables)
             table_display = f"{table_str} (共{count}桌)"
-            seating_note = f"\n⚠️ 座位說明：依據人數為您安排了 {count} 張鄰近桌位，皆位於同一樓層。"
+            seating_note += f"\n⚠️ 此為併桌安排：依據人數為您安排了 {count} 張鄰近桌位，皆位於同一樓層。"
 
         # Construct a nice Chinese confirmation message
         message = (
@@ -220,31 +250,8 @@ class ReservationQueryAgent(BaseAgent):
                 _, date, time, pax, name, phone = input_text.split("|")
                 pax = int(pax)
                 
-                is_available = await self.db.check_availability(date, time, pax)
-                if is_available:
-                    res_result = await self.db.create_reservation(user_id, date, time, pax, name, phone)
-                    
-                    # Parse result: "res_id|table1, table2..."
-                    if "|" in res_result:
-                        reservation_id, table_str = res_result.split("|")
-                    else:
-                        reservation_id = res_result
-                        table_str = ""
-
-                    # Generate Seating Explanation
-                    seating_note = ""
-                    if table_str:
-                        tables = table_str.split(", ")
-                        if len(tables) > 1:
-                            # Split seating logic
-                            seating_note = f"\n\n⚠️ 座位安排說明：由於人多，我們為您安排了 {len(tables)} 張桌子 ({table_str})，都在同一樓層，請不用擔心。"
-                        else:
-                            seating_note = f"\n桌號: {tables[0]}"
-
-                    msg = get_msg("book_success", name=name, reservation_id=reservation_id, date=date, time=time, pax=pax)
-                    return msg + seating_note
-                else:
-                    return get_msg("book_unavailable")
+                # Delegate to the unified booking method to ensure consistent formatting and logic
+                return await self.book_table(date=date, time=time, pax=pax, name=name, phone=phone, floor=None, context=context)
             except ValueError:
                 return get_msg("process_error")
         
@@ -257,12 +264,8 @@ class ReservationQueryAgent(BaseAgent):
             name = "Guest"
             phone = "Unknown"
             
-            is_available = await self.db.check_availability(date, time, pax)
-            if is_available:
-                reservation_id = await self.db.create_reservation(user_id, date, time, pax, name, phone)
-                return get_msg("book_success", name=name, reservation_id=reservation_id, date=date, time=time, pax=pax)
-            else:
-                return get_msg("book_unavailable")
+            # Delegate legacy regex command to unified book_table
+            return await self.book_table(date=date, time=time, pax=pax, name=name, phone=phone, floor=None, context=context)
         
         # LLM Fallback
         try:
@@ -284,6 +287,7 @@ class ReservationQueryAgent(BaseAgent):
                         name=args["name"],
                         phone=args["phone"],
                         floor=int(args.get("floor")) if args.get("floor") else None,
+                        allow_split=args.get("allow_split", False),
                         context=context
                     )
                 elif func_name == "get_my_reservations":
@@ -378,7 +382,8 @@ class ConversationAgent(BaseAgent):
                                 "pax": {"type": "INTEGER", "description": "Number of people"},
                                 "name": {"type": "STRING", "description": "Customer Name"},
                                 "phone": {"type": "STRING", "description": "Customer Phone Number"},
-                                "floor": {"type": "INTEGER", "description": "Preferred floor (1, 2, or 3). Optional."}
+                                "floor": {"type": "INTEGER", "description": "Preferred floor (1, 2, or 3). Optional."},
+                                "allow_split": {"type": "BOOLEAN", "description": "Set to true if user explicitly agrees to be split across multiple floors."}
                             },
                             "required": ["date", "time", "pax", "name", "phone"]
                         }
@@ -466,18 +471,19 @@ class ConversationAgent(BaseAgent):
 
         policy_str = f"""
         【Store Policy】
-        No outside food or drinks.
+        - No outside food or drinks.
+        - Minimum charge $200 per person.
         
         【Floor Guide】
         
         1. 1st Floor: 
-           Time limit 90 minutes. Minimum charge $200 per person.
+           Time limit 90 minutes.
            
         2. 2nd Floor: 
-           No time limit. Suitable for conversations. Minimum charge $200 per person.
+           No time limit. Suitable for conversations.
            
         3. 3rd Floor: 
-           No time limit. Quiet zone (no chatting). Minimum charge $200 per person.
+           No time limit. Quiet zone (no chatting).
         
         【Business Hours】
         {hours_str}
@@ -545,6 +551,15 @@ class ConversationAgent(BaseAgent):
            - If a booking is for more than 6 people, you MUST inform the user that they will be split across multiple tables.
            - Reassure them that the tables will be on the SAME FLOOR to keep the group together.
            - Example: "由於您的團體人數較多（8位），我們將為您安排在同一樓層的兩張相鄰桌位，方便您們互相照應。"
+        8. Formatting & Readability:
+           - Use line breaks (newlines) freely to separate different topics or key information.
+           - Avoid long, dense paragraphs. 
+           - When listing options or confirming details, use bullet points or separate lines.
+        9. **Tool Response Handling (CRITICAL)**:
+           - When a tool (like book_table) returns a complete formatted message (e.g., with emojis, booking details, table number, confirmation code), you MUST return that EXACT message to the user WITHOUT modification.
+           - DO NOT summarize, rephrase, or omit any details from tool responses.
+           - DO NOT add extra commentary unless the tool response explicitly asks you to (e.g., "SYSTEM_NOTICE").
+           - Example: If book_table returns "🎉 預約成功！...", send that ENTIRE message as-is.
         """
 
         try:
