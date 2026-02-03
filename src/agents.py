@@ -599,6 +599,9 @@ class ConversationAgent(BaseAgent):
 
             current_lang = "en" if is_english(input_text) else "zh-TW"
             
+            logger.info(f"Response parts count: {len(response.parts)}")
+            logger.info(f"Part has function_call: {hasattr(part, 'function_call') and part.function_call is not None}")
+            
             if part.function_call:
                 fc = part.function_call
                 func_name = fc.name
