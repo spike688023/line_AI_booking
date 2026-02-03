@@ -637,9 +637,19 @@ class ConversationAgent(BaseAgent):
                 elif func_name == "check_payment":
                     command = f"Pay {args['order_id']}"
                     return await self.payment_agent.process(command, context, language=current_lang)
+                
+                else:
+                    # Unknown function call
+                    logger.warning(f"Unknown function call: {func_name} with args: {args}")
+                    return f"抱歉，我無法處理這個請求。請提供更多資訊，例如日期、時間、人數等。"
             
             # If no function call, return the text
-            return response.text
+            try:
+                return response.text
+            except Exception as text_error:
+                logger.error(f"Failed to get response.text: {text_error}")
+                logger.error(f"Response parts: {response.parts}")
+                return "抱歉，我遇到了一些問題。請再試一次。"
 
         except Exception as e:
             logger.error(f"LLM Error: {e}")
