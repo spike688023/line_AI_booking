@@ -79,6 +79,11 @@ class Database:
             return True
 
         try:
+            # Check for special closure
+            closures = await self.get_special_closures()
+            if date in closures:
+                return False
+
             occupancy = await self.get_daily_occupied_tables(date)
             
             # Check if total remaining capacity is enough for the group (allowing split tables)
@@ -95,7 +100,39 @@ class Database:
             logger.error(f"Error checking availability: {e}")
             return False
 
-    async def create_reservation(self, user_id: str, date: str, time: str, pax: int, name: str, phone: str, preferred_floor: int = None) -> str:
+    async def get_available_floors(self, date: str, time: str, pax: int) -> List[int]:
+        """
+        Returns a list of floors [1, 2, 3] that have enough remaining capacity for the pax.
+        """
+        if not self.client:
+            return [1, 2, 3] # Default if no DB
+
+        try:
+            # Check special closure
+            closures = await self.get_special_closures()
+            if date in closures:
+                return []
+
+            occupancy = await self.get_daily_occupied_tables(date)
+            
+            floor_capacity = {1: 0, 2: 0, 3: 0}
+            
+            for table_id, config in self.TABLE_CONFIG.items():
+                floor = config.get("floor", 1) # Default to 1 if not set (though all should have it)
+                if floor not in floor_capacity: floor_capacity[floor] = 0
+                
+                table_data = occupancy.get(table_id, {"booked_pax": 0})
+                remaining = max(0, config["capacity"] - table_data["booked_pax"])
+                floor_capacity[floor] += remaining
+            
+            available_floors = [f for f, cap in floor_capacity.items() if cap >= pax]
+            return sorted(available_floors)
+            
+        except Exception as e:
+            logger.error(f"Error checking floor availability: {e}")
+            return []
+
+    async def create_reservation(self, user_id: str, date: str, time: str, pax: int, name: str, phone: str, preferred_floor: int = None, allow_split_floor: bool = False) -> str:
         """
         Create a reservation and allocate seats on a table (supports shared tables).
         """
@@ -107,7 +144,7 @@ class Database:
         slot_ref = self.client.collection("daily_slots").document(date)
 
         @firestore.transactional
-        def create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone, preferred_floor):
+        def create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone, preferred_floor, allow_split_floor):
             # 1. Get current occupancy for the day
             snapshot = slot_ref.get(transaction=transaction)
             occupancy = {}
@@ -178,6 +215,9 @@ class Database:
                 
                 # If cannot fit on one floor, fallback to global greedy (cross-floor)
                 if not floor_assigned:
+                    if not allow_split_floor:
+                         raise Exception("split_floor_required")
+                         
                     multi_table_configs = sorted(self.TABLE_CONFIG.items(), key=lambda x: x[1]["capacity"], reverse=True)
                     temp_pax = pax
                     for table_id, config in multi_table_configs:
@@ -235,11 +275,13 @@ class Database:
             return f"{reservation_ref.id}|{all_tables_str}"
 
         try:
-            result = create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone, preferred_floor)
+            result = create_in_transaction(transaction, reservation_ref, slot_ref, date, time, pax, user_id, name, phone, preferred_floor, allow_split_floor)
             return result
         except Exception as e:
             if "overbooked" in str(e):
                 return "overbooked"
+            if "split_floor_required" in str(e):
+                return "split_floor_required"
             logger.error(f"Transaction failed: {e}")
             return None
 
@@ -430,14 +472,18 @@ class Database:
             old_date = data.get("date")
             old_time = data.get("time")
             pax = data.get("pax", 0)
-            old_table_id = data.get("table_id")
+            old_table_ids_str = data.get("table_id", "") # Could be "1A|1B"
+            old_table_ids = old_table_ids_str.split("|") if old_table_ids_str else []
 
             # If moving within the same slot, just update timestamp
             if old_date == new_date and old_time == new_time:
                 transaction.update(reservation_ref, {"updated_at": firestore.SERVER_TIMESTAMP})
                 return "success"
 
-            # 1. Allocate new table in new slot
+            # 1. Check New Slot Availability & Allocate Tables
+            # We reuse the logic normally found in create_reservation, but inline here for transactional safety
+            # OR we can improve the simplistic logic here to support multi-table.
+            
             new_slot_id = f"{new_date}_{new_time}"
             new_slot_ref = self.client.collection("slots").document(new_slot_id)
             new_slot_snapshot = new_slot_ref.get(transaction=transaction)
@@ -449,54 +495,65 @@ class Database:
                 new_booked_tables = new_slot_data.get("tables", [])
                 new_booked_pax = new_slot_data.get("booked_pax", 0)
             
-            # Find best table in new slot
-            new_table_id = None
-            min_diff = float('inf')
-            available_tables = sorted(
-                [(tid, conf) for tid, conf in self.TABLE_CONFIG.items() if tid not in new_booked_tables],
-                key=lambda x: x[1]["capacity"]
-            )
-            for tid, conf in available_tables:
-                if conf["capacity"] >= pax:
-                    diff = conf["capacity"] - pax
-                    if diff < min_diff:
-                        min_diff = diff
-                        new_table_id = tid
-                    if diff == 0: break
+            # --- Better Allocation Logic (Support Split Tables) ---
+            assigned_tables = []
+            remaining_pax = pax
             
-            if not new_table_id:
-                return "unavailable"
+            # Sort available tables by capacity (small to large) to fit efficiently, 
+            # or large to small? 
+            # Simplified strategy: Greedy fit largest available first.
+            available_tables_conf = []
+            for tid, conf in self.TABLE_CONFIG.items():
+                if tid not in new_booked_tables:
+                    available_tables_conf.append((tid, conf))
+            
+            # Sort by capacity descending
+            available_tables_conf.sort(key=lambda x: x[1]["capacity"], reverse=True)
+            
+            for tid, conf in available_tables_conf:
+                if remaining_pax <= 0:
+                    break
+                # Simple logic: take the table
+                cap = conf["capacity"]
+                assigned_tables.append(tid)
+                remaining_pax -= cap
+            
+            if remaining_pax > 0:
+                return "unavailable" # Still cannot fit
+
+            new_table_ids_str = "|".join(assigned_tables)
 
             # 2. Update reservation
             transaction.update(reservation_ref, {
                 "date": new_date,
                 "time": new_time,
-                "table_id": new_table_id,
+                "table_id": new_table_ids_str,
                 "updated_at": firestore.SERVER_TIMESTAMP
             })
 
             # 3. Update new slot occupancy
-            new_booked_tables.append(new_table_id)
+            new_booked_tables.extend(assigned_tables)
             transaction.set(new_slot_ref, {
                 "booked_pax": new_booked_pax + pax,
                 "tables": new_booked_tables
             }, merge=True)
 
-            # 4. Update old slot occupancy (release old table)
+            # 4. Update old slot occupancy (release old tables)
             old_slot_id = f"{old_date}_{old_time}"
             old_slot_ref = self.client.collection("slots").document(old_slot_id)
             old_slot_snapshot = old_slot_ref.get(transaction=transaction)
             if old_slot_snapshot.exists:
                 old_slot_data = old_slot_snapshot.to_dict()
-                old_booked_pax = old_slot_data.get("booked_pax", 0)
-                old_booked_tables = old_slot_data.get("tables", [])
+                old_booked_pax_val = old_slot_data.get("booked_pax", 0)
+                old_booked_tables_list = old_slot_data.get("tables", [])
                 
-                if old_table_id in old_booked_tables:
-                    old_booked_tables.remove(old_table_id)
+                for otid in old_table_ids:
+                    if otid in old_booked_tables_list:
+                        old_booked_tables_list.remove(otid)
                 
                 transaction.set(old_slot_ref, {
-                    "booked_pax": max(0, old_booked_pax - pax),
-                    "tables": old_booked_tables
+                    "booked_pax": max(0, old_booked_pax_val - pax),
+                    "tables": old_booked_tables_list
                 }, merge=True)
 
             return "success"

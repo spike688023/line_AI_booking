@@ -139,8 +139,10 @@
                     <td>{{ res.name }}</td>
                     <td>{{ res.phone }}</td>
                     <td class="actions">
-                        <button class="pseudo"
-                            onclick="openEditModal('{{ res.id }}', '{{ res.date }}', '{{ res.time }}')">Edit</button>
+                        <form action="/admin/delete/{{ res.id }}" method="post" style="display: inline;"
+                            onsubmit="return confirm('Are you sure you want to CANCEL this reservation?');">
+                            <button class="error" style="font-size: 0.8rem; padding: 5px 10px;">Cancel</button>
+                        </form>
                     </td>
                 </tr>
                 {% endfor %}
@@ -148,33 +150,7 @@
         </table>
     </div>
 
-    <!-- Edit Modal -->
-    <div id="editModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeEditModal()">&times;</span>
-            <h3>Edit Reservation</h3>
-            <form id="editForm" method="post">
-                <label>Date</label>
-                <input type="date" name="new_date" id="editDate" required>
-                <label>Time</label>
-                <input type="time" name="new_time" id="editTime" required>
-                <button type="submit" class="success" style="margin-top: 10px; width: 100%;">Save Changes</button>
-            </form>
-        </div>
-    </div>
 
-    <script>
-        function openEditModal(id, date, time) {
-            document.getElementById('editModal').classList.add('active');
-            document.getElementById('editForm').action = '/admin/update/' + id;
-            document.getElementById('editDate').value = date;
-            document.getElementById('editTime').value = time;
-        }
-
-        function closeEditModal() {
-            document.getElementById('editModal').classList.remove('active');
-        }
-    </script>
 </body>
 
 </html>

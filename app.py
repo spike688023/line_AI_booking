@@ -179,14 +179,7 @@ async def delete_reservation(reservation_id: str, request: Request):
     await db.delete_reservation(reservation_id)
     return RedirectResponse(url="/admin/dashboard", status_code=303)
 
-@app.post("/admin/update/{reservation_id}")
-async def update_reservation(reservation_id: str, request: Request, new_date: str = Form(...), new_time: str = Form(...)):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
-    # Admin update bypasses user_id check
-    await db.modify_reservation(reservation_id, new_date, new_time, user_id="admin", is_admin=True)
-    return RedirectResponse(url="/admin/dashboard", status_code=303)
+
 
 # --- Menu Management Routes ---
 
