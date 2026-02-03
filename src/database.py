@@ -405,6 +405,9 @@ class Database:
 
         @firestore.transactional
         def delete_in_transaction(transaction, reservation_ref):
+            # IMPORTANT: All reads must happen BEFORE any writes in Firestore transactions
+            
+            # Read 1: Get reservation data
             snapshot = reservation_ref.get(transaction=transaction)
             if not snapshot.exists:
                 return False
@@ -415,27 +418,32 @@ class Database:
             pax = data.get("pax", 0)
             table_id = data.get("table_id")
             
-            # 1. Delete reservation
-            transaction.delete(reservation_ref)
-            
-            # 2. Update slot occupancy
+            # Read 2: Get slot data (if applicable) - MUST be before any writes
+            slot_snapshot = None
+            slot_ref = None
             if date and time:
                 slot_id = f"{date}_{time}"
                 slot_ref = self.client.collection("slots").document(slot_id)
                 slot_snapshot = slot_ref.get(transaction=transaction)
-                if slot_snapshot.exists:
-                    slot_data = slot_snapshot.to_dict()
-                    current_booked = slot_data.get("booked_pax", 0)
-                    booked_tables = slot_data.get("tables", [])
-                    
-                    new_booked = max(0, current_booked - pax)
-                    if table_id in booked_tables:
-                        booked_tables.remove(table_id)
-                    
-                    transaction.set(slot_ref, {
-                        "booked_pax": new_booked,
-                        "tables": booked_tables
-                    }, merge=True)
+            
+            # Now perform all writes
+            # Write 1: Delete reservation
+            transaction.delete(reservation_ref)
+            
+            # Write 2: Update slot occupancy
+            if slot_snapshot and slot_snapshot.exists:
+                slot_data = slot_snapshot.to_dict()
+                current_booked = slot_data.get("booked_pax", 0)
+                booked_tables = slot_data.get("tables", [])
+                
+                new_booked = max(0, current_booked - pax)
+                if table_id in booked_tables:
+                    booked_tables.remove(table_id)
+                
+                transaction.set(slot_ref, {
+                    "booked_pax": new_booked,
+                    "tables": booked_tables
+                }, merge=True)
             
             return True
 
