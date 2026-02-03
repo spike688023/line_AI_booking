@@ -1,6 +1,7 @@
 import os
 import logging
 from dotenv import load_dotenv
+from collections import deque
 
 # Load environment variables
 load_dotenv()
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI
 app = FastAPI()
+
+# Simple In-Memory De-duplication for Webhooks
+processed_events = deque(maxlen=2000)
 
 # Initialize Templates
 templates = Jinja2Templates(directory="templates")
@@ -337,6 +341,14 @@ async def callback(request: Request):
         if parser:
             events = parser.parse(body_text, signature)
             for event in events:
+                # Deduplication check
+                if hasattr(event, "webhook_event_id"):
+                    eid = event.webhook_event_id
+                    if eid in processed_events:
+                        logger.info(f"Duplicate event {eid} detected. Skipping.")
+                        continue
+                    processed_events.append(eid)
+
                 if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
                     await handle_message_async(event)
                 elif isinstance(event, FollowEvent):
