@@ -386,14 +386,24 @@ async def handle_message_async(event):
         logger.error(f"Error processing message: {e}")
         response_text = "Sorry, I encountered an error processing your request."
     
-    # Reply using sync API (blocking, but acceptable for now)
+    # Reply using LINE API
+    # Try push_message first (no token expiration), fallback to reply_message
     try:
-        line_bot_api.reply_message(
-            event.reply_token,
+        line_bot_api.push_message(
+            user_id,
             TextSendMessage(text=response_text)
         )
+        logger.info(f"Sent push message to {user_id}")
     except Exception as e:
-        logger.error(f"Error sending reply: {e}")
+        logger.warning(f"Push message failed: {e}, trying reply_message")
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=response_text)
+            )
+            logger.info(f"Sent reply message to {user_id}")
+        except Exception as e2:
+            logger.error(f"Both push and reply failed: {e2}")
 
 async def handle_follow_async(event):
     welcome_text = (
