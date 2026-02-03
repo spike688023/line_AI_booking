@@ -610,12 +610,15 @@ class ConversationAgent(BaseAgent):
                     command = f"Book|{args['date']}|{args['time']}|{int(args['pax'])}|{args['name']}|{args['phone']}"
                     result = await self.reservation_agent.process(command, context, language=current_lang)
                     
+                    logger.info(f"[TOOL_RESPONSE] book_table returned: {result[:200]}...")  # Log first 200 chars
+                    
                     # Send notification if successful
-                    if "ID:" in result:
+                    if "ID:" in result or "🆔" in result:
                          # Extract details for notification (simplified)
                          from app import send_admin_notification
                          await send_admin_notification(f"New Reservation!\n{args['name']} ({args['pax']} pax)\n{args['date']} {args['time']}")
                     
+                    logger.info(f"[FINAL_RESPONSE] Returning to user: {result[:200]}...")
                     return result
                 
                 elif func_name == "get_my_reservations":
