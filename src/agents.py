@@ -599,14 +599,7 @@ class ConversationAgent(BaseAgent):
             
             response = await chat.send_message_async(full_prompt)
             
-            part = response.parts[0]
-            
-            # Detect language (Simple heuristic or ask LLM)
-            # For now, we can infer it from the user input or just default to zh-TW
-            # But since we want the LLM to control it, we can add a 'language' parameter to the tools definition?
-            # Or, simpler: The LLM instructions say "Reply in the same language".
-            # We can detect if the input is mostly English.
-            
+            # Detect language (Simple heuristic)
             def is_english(text):
                 try:
                     text.encode(encoding='utf-8').decode('ascii')
@@ -617,10 +610,17 @@ class ConversationAgent(BaseAgent):
             current_lang = "en" if is_english(input_text) else "zh-TW"
             
             logger.info(f"Response parts count: {len(response.parts)}")
-            logger.info(f"Part has function_call: {hasattr(part, 'function_call') and part.function_call is not None}")
             
-            if part.function_call:
-                fc = part.function_call
+            # 1. Search for Function Call in ANY part
+            target_fc_part = None
+            if response.parts:
+                for p in response.parts:
+                    if p.function_call:
+                        target_fc_part = p
+                        break
+            
+            if target_fc_part:
+                fc = target_fc_part.function_call
                 func_name = fc.name
                 args = fc.args
                 
@@ -674,12 +674,22 @@ class ConversationAgent(BaseAgent):
                     logger.warning(f"Unknown function call: {func_name} with args: {args}")
                     return f"抱歉，我無法處理這個請求。請提供更多資訊，例如日期、時間、人數等。"
             
-            # If no function call, return the text
+            # 2. If no function call, safely return text
             try:
-                return response.text
+                # Iterate parts to avoid "Could not convert part.function_call to text" 
+                text_parts = []
+                if response.parts:
+                    for p in response.parts:
+                        if hasattr(p, 'text') and p.text:
+                            text_parts.append(p.text)
+                
+                full_text = "".join(text_parts)
+                if not full_text:
+                     return "抱歉，我沒有聽到您的回應，請再說一次。"
+                return full_text
+
             except Exception as text_error:
-                logger.error(f"Failed to get response.text: {text_error}")
-                logger.error(f"Response parts: {response.parts}")
+                logger.error(f"Failed to get response text: {text_error}")
                 return "抱歉，我遇到了一些問題。請再試一次。"
 
         except Exception as e:

@@ -414,36 +414,54 @@ class Database:
             
             data = snapshot.to_dict()
             date = data.get("date")
-            time = data.get("time")
-            pax = data.get("pax", 0)
-            table_id = data.get("table_id")
+            # "all_tables" is the source of truth for all tables involved, fallback to "table_id"
+            all_tables_str = data.get("all_tables") or data.get("table_id", "")
             
-            # Read 2: Get slot data (if applicable) - MUST be before any writes
+            # Read 2: Get daily slot data - MUST be before any writes
             slot_snapshot = None
             slot_ref = None
-            if date and time:
-                slot_id = f"{date}_{time}"
-                slot_ref = self.client.collection("slots").document(slot_id)
+            if date:
+                slot_ref = self.client.collection("daily_slots").document(date)
                 slot_snapshot = slot_ref.get(transaction=transaction)
             
             # Now perform all writes
             # Write 1: Delete reservation
             transaction.delete(reservation_ref)
             
-            # Write 2: Update slot occupancy
+            # Write 2: Update daily slot occupancy
             if slot_snapshot and slot_snapshot.exists:
                 slot_data = slot_snapshot.to_dict()
-                current_booked = slot_data.get("booked_pax", 0)
-                booked_tables = slot_data.get("tables", [])
+                occupancy = slot_data.get("occupancy", {})
                 
-                new_booked = max(0, current_booked - pax)
-                if table_id in booked_tables:
-                    booked_tables.remove(table_id)
+                # Use a set of tables to be robust
+                tables_to_check = [t.strip() for t in all_tables_str.split(",") if t.strip()]
                 
-                transaction.set(slot_ref, {
-                    "booked_pax": new_booked,
-                    "tables": booked_tables
-                }, merge=True)
+                # Also check all keys in occupancy just in case the string in reservation was truncated/wrong
+                updated_occupancy = False
+                
+                for tid in tables_to_check:
+                    if tid in occupancy:
+                        table_data = occupancy[tid]
+                        bookings = table_data.get("bookings", [])
+                        
+                        # Find the booking entry for this reservation ID
+                        # There should be exactly one per table per reservation
+                        booking_entry = next((b for b in bookings if b.get("res_id") == reservation_ref.id), None)
+                        
+                        if booking_entry:
+                            # Found it! Remove it.
+                            pax_to_remove = booking_entry.get("pax", 0)
+                            bookings.remove(booking_entry)
+                            
+                            # Update booked_pax
+                            current_booked = table_data.get("booked_pax", 0)
+                            table_data["booked_pax"] = max(0, current_booked - pax_to_remove)
+                            table_data["bookings"] = bookings
+                            
+                            updated_occupancy = True
+                
+                if updated_occupancy:
+                    transaction.update(slot_ref, {"occupancy": occupancy})
             
             return True
 
