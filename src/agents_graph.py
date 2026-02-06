@@ -338,15 +338,16 @@ async def business_rules_node(state: AgentState) -> AgentState:
 async def execute_booking_node(state: AgentState) -> AgentState:
     """
     Execute the actual booking in the database.
+    Clears conversation state after successful booking.
     """
     logger.info("[EXECUTE] Creating reservation...")
-    
+
     booking = state["booking_slot"]
-    
+
     try:
         from src.agents_legacy import ReservationQueryAgent
         agent = ReservationQueryAgent()
-        
+
         result = await agent.book_table(
             date=booking["date"],
             time=booking["time"],
@@ -357,14 +358,18 @@ async def execute_booking_node(state: AgentState) -> AgentState:
             allow_split=booking.get("allow_split", False),
             context={"user_id": state["user_id"]}
         )
-        
+
         state["final_response"] = result
         logger.info("[EXECUTE] Booking successful")
-        
+
+        # Clear conversation state after successful booking
+        await db.clear_conversation_state(state["user_id"])
+        state["booking_slot"] = {}  # Reset for next conversation
+
     except Exception as e:
         logger.error(f"[EXECUTE] Booking failed: {e}")
         state["final_response"] = "抱歉，訂位時發生錯誤，請稍後再試。"
-    
+
     return state
 
 
@@ -565,29 +570,44 @@ class LangGraphAgent:
     def __init__(self):
         self.graph = create_booking_graph()
         logger.info("[LANGGRAPH] Agent initialized")
-    
+
     async def process(self, input_text: str, context: Dict[str, Any] = None) -> str:
         """
         Process user input through the LangGraph state machine.
+        Persists booking_slot across conversation turns.
         """
         user_id = context.get("user_id", "unknown_user") if context else "unknown_user"
-        
-        # Initialize state
+
+        # Load previous conversation state (booking_slot) from database
+        previous_state = await db.get_conversation_state(user_id)
+        previous_booking_slot = previous_state.get("booking_slot", {})
+        logger.info(f"[LANGGRAPH] Loaded previous state for {user_id}: {previous_booking_slot}")
+
+        # Initialize state with previous booking_slot
         initial_state: AgentState = {
             "messages": [HumanMessage(content=input_text)],
             "user_id": user_id,
             "user_profile": {},
             "intent": "unknown",
-            "booking_slot": {},
+            "booking_slot": previous_booking_slot,  # Load from session!
             "next_step": "",
             "error_msg": "",
             "language": detect_language(input_text),
             "final_response": ""
         }
-        
+
         # Run the graph
         try:
             final_state = await self.graph.ainvoke(initial_state)
+
+            # Save updated booking_slot to database for next turn
+            if final_state.get("booking_slot"):
+                await db.save_conversation_state(
+                    user_id,
+                    final_state["booking_slot"],
+                    final_state.get("intent")
+                )
+
             return final_state["final_response"]
         except Exception as e:
             logger.error(f"[LANGGRAPH] Graph execution failed: {e}")

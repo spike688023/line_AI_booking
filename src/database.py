@@ -812,5 +812,76 @@ class Database:
             logger.error(f"Failed to update notification settings: {e}")
             return False
 
+    # ============================================================================
+    # SESSION / CONVERSATION STATE MANAGEMENT
+    # ============================================================================
+
+    async def get_conversation_state(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get the current conversation state for a user.
+        Returns: {"booking_slot": {...}, "intent": "...", "updated_at": ...}
+        """
+        if not self.client:
+            return {}
+
+        try:
+            doc = self.client.collection("conversation_states").document(user_id).get()
+            if doc.exists:
+                data = doc.to_dict()
+                # Check if state is stale (older than 30 minutes)
+                updated_at = data.get("updated_at")
+                if updated_at:
+                    from datetime import datetime, timedelta, timezone
+                    # Firestore timestamps are timezone-aware
+                    if hasattr(updated_at, 'timestamp'):
+                        age = datetime.now(timezone.utc) - updated_at
+                        if age > timedelta(minutes=30):
+                            logger.info(f"[SESSION] State for {user_id} is stale ({age}), clearing")
+                            await self.clear_conversation_state(user_id)
+                            return {}
+                return data
+            return {}
+        except Exception as e:
+            logger.error(f"Failed to get conversation state: {e}")
+            return {}
+
+    async def save_conversation_state(self, user_id: str, booking_slot: Dict[str, Any], intent: str = None) -> bool:
+        """
+        Save the conversation state for a user.
+        """
+        if not self.client:
+            return False
+
+        try:
+            state_data = {
+                "booking_slot": booking_slot,
+                "updated_at": firestore.SERVER_TIMESTAMP
+            }
+            if intent:
+                state_data["intent"] = intent
+
+            self.client.collection("conversation_states").document(user_id).set(state_data, merge=True)
+            logger.info(f"[SESSION] Saved state for {user_id}: {booking_slot}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save conversation state: {e}")
+            return False
+
+    async def clear_conversation_state(self, user_id: str) -> bool:
+        """
+        Clear the conversation state for a user (after booking is complete).
+        """
+        if not self.client:
+            return False
+
+        try:
+            self.client.collection("conversation_states").document(user_id).delete()
+            logger.info(f"[SESSION] Cleared state for {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear conversation state: {e}")
+            return False
+
+
 # Singleton instance
 db = Database()
