@@ -376,12 +376,12 @@ async def handle_message_async(event):
             logger.error(f"Error sending reply: {e}")
         return
     
-    # Integrate with Conversation Agent
-    from src.agents import conversation_agent
+    # Integrate with LangGraph Agent (New Architecture)
+    from src.agents_graph import langgraph_agent
 
     try:
         # Await the async process directly in the main loop
-        response_text = await conversation_agent.process(user_message, context={"user_id": user_id})
+        response_text = await langgraph_agent.process(user_message, context={"user_id": user_id})
     except Exception as e:
         logger.error(f"Error processing message: {e}")
         response_text = "Sorry, I encountered an error processing your request."
