@@ -41,7 +41,7 @@ class AgentState(TypedDict):
     user_profile: Dict[str, Any]  # {name, phone, past_reservations}
     
     # Intent classification
-    intent: Literal["booking", "query_menu", "modify_reservation", "general_chat", "unknown"]
+    intent: Literal["booking", "query_menu", "modify_reservation", "general_chat", "unclear", "unknown"]
     
     # Booking slot filling (for reservation flow)
     booking_slot: Dict[str, Any]  # {date, time, pax, name, phone, floor, allow_split}
@@ -83,42 +83,97 @@ def get_missing_booking_fields(booking_slot: Dict[str, Any]) -> List[str]:
 async def router_node(state: AgentState) -> AgentState:
     """
     Entry point: Classify user intent.
-    Uses keyword and pattern matching to determine conversation direction.
+
+    Hybrid approach:
+    1. Fast keyword/regex matching for obvious cases (free, instant)
+    2. LLM fallback for ambiguous inputs (smart, but costs API call)
     """
     logger.info("[ROUTER] Classifying user intent...")
-    
+
     user_input = state["messages"][-1].content if state["messages"] else ""
-    
-    # Keyword-based routing
+
+    # === PHASE 1: Fast keyword/regex matching ===
     keywords_booking = ["訂位", "預約", "book", "reservation", "reserve", "訂"]
-    keywords_menu = ["菜單", "menu", "餐點", "food", "drink"]
-    keywords_modify = ["修改", "改", "change", "modify"]
-    
-    intent = "unknown"
-    
+    keywords_menu = ["菜單", "menu", "餐點", "food", "drink", "價格", "price"]
+    keywords_modify = ["修改", "取消", "改", "change", "modify", "cancel"]
+
+    intent = None  # None means "not sure yet"
+
     # Check for explicit booking keywords
     if any(kw in user_input for kw in keywords_booking):
         intent = "booking"
     # Check for date/time/pax patterns (implicit booking intent)
-    elif re.search(r'\d{4}-\d{2}-\d{2}', user_input):  # Date pattern
+    elif re.search(r'\d{4}-\d{2}-\d{2}', user_input):  # Full date: 2026-02-07
+        intent = "booking"
+    elif re.search(r'\d{1,2}/\d{1,2}', user_input):  # Short date: 2/7, 02/07
+        intent = "booking"
+    elif re.search(r'\d{1,2}月\d{1,2}日?', user_input):  # Chinese date: 2月7日
         intent = "booking"
     elif re.search(r'\d{1,2}:\d{2}', user_input):  # Time pattern
         intent = "booking"
-    elif re.search(r'(明天|後天|下週|next|tomorrow)', user_input):  # Relative date
+    elif re.search(r'(明天|後天|下週|next|tomorrow|今天|today)', user_input):  # Relative date
         intent = "booking"
-    elif re.search(r'(\d+)\s*(個人|人|位|pax|people)', user_input):  # Pax pattern
+    elif re.search(r'(\d+)\s*(個人|人|位|pax|people|guests?)', user_input):  # Pax pattern
         intent = "booking"
     elif any(kw in user_input for kw in keywords_menu):
         intent = "query_menu"
     elif any(kw in user_input for kw in keywords_modify):
         intent = "modify_reservation"
-    else:
-        intent = "general_chat"
-    
+
+    # === PHASE 2: LLM fallback for ambiguous inputs ===
+    if intent is None:
+        logger.info("[ROUTER] No keyword match, using LLM classification...")
+        intent = await _classify_intent_with_llm(user_input)
+
     state["intent"] = intent
     logger.info(f"[ROUTER] Detected intent: {intent}")
-    
+
     return state
+
+
+async def _classify_intent_with_llm(user_input: str) -> str:
+    """
+    Use LLM to classify intent when keyword matching fails.
+    Returns one of: booking, query_menu, modify_reservation, general_chat, unclear
+    """
+    try:
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash",
+            google_api_key=os.getenv("GOOGLE_API_KEY")
+        )
+
+        prompt = f"""你是咖啡廳訂位系統的意圖分類器。
+
+根據用戶輸入，判斷意圖類別。只回答一個英文詞，不要解釋。
+
+類別：
+- booking: 想訂位、約位子、安排座位、帶朋友來、想去店裡
+- query_menu: 問菜單、餐點、飲料、價格
+- modify_reservation: 修改或取消訂位
+- general_chat: 打招呼、閒聊、問候語（如「你好」「嗨」）
+- unclear: 無法判斷、訊息太短或太模糊（如單一符號、亂碼、無意義文字）
+
+用戶說：「{user_input}」
+
+意圖："""
+
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        raw_intent = response.content.strip().lower()
+
+        # Validate and normalize the response
+        valid_intents = ["booking", "query_menu", "modify_reservation", "general_chat", "unclear"]
+        for valid in valid_intents:
+            if valid in raw_intent:
+                logger.info(f"[ROUTER] LLM classified as: {valid}")
+                return valid
+
+        # Default to unclear if LLM gives unexpected response
+        logger.warning(f"[ROUTER] LLM returned unexpected: {raw_intent}, defaulting to unclear")
+        return "unclear"
+
+    except Exception as e:
+        logger.error(f"[ROUTER] LLM classification failed: {e}")
+        return "unclear"
 
 
 async def booking_collector_node(state: AgentState) -> AgentState:
@@ -350,11 +405,21 @@ async def response_generator_node(state: AgentState) -> AgentState:
     
     # Determine what to say based on state
     missing_fields = get_missing_booking_fields(state["booking_slot"])
-    
-    if state.get("error_msg"):
+
+    if state.get("intent") == "unclear":
+        # Intent was unclear - ask user what they want to do
+        task = """用戶的意圖不明確。請友善地詢問用戶想做什麼，並提供選項：
+
+        1. 訂位
+        2. 查看菜單
+        3. 修改/取消訂位
+        4. 其他問題
+
+        用簡短親切的方式詢問，不要列出編號，用自然的語句。"""
+    elif state.get("error_msg"):
         # There's an error to communicate
         task = f"告訴用戶：{state['error_msg']}，並請他們提供正確的資訊。"
-    elif missing_fields:
+    elif state.get("intent") == "booking" and missing_fields:
         # Need to ask for missing information
         field_names = {
             "date": "日期",
