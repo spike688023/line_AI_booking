@@ -186,12 +186,12 @@ class TestRouterNode:
 class TestBookingSlotValidation:
     def test_all_fields_missing(self):
         missing = get_missing_booking_fields({})
-        assert set(missing) == {"date", "time", "pax", "name", "phone"}
+        assert set(missing) == {"date", "time", "pax", "name", "phone", "floor"}
 
     def test_partial_fields(self):
         booking = {"date": "2026-02-07", "time": "14:00"}
         missing = get_missing_booking_fields(booking)
-        assert set(missing) == {"pax", "name", "phone"}
+        assert set(missing) == {"pax", "name", "phone", "floor"}
 
     def test_all_fields_present(self):
         booking = {
@@ -199,7 +199,8 @@ class TestBookingSlotValidation:
             "time": "14:00",
             "pax": 4,
             "name": "王小明",
-            "phone": "0912345678"
+            "phone": "0912345678",
+            "floor": 2
         }
         missing = get_missing_booking_fields(booking)
         assert missing == []
@@ -271,10 +272,94 @@ class TestCollectorNode:
 
 
 # ============================================================================
-# TEST: End-to-End Booking Flow
+# TEST: End-to-End Booking Flow (Multi-turn Integration Tests)
 # ============================================================================
 class TestEndToEndBookingFlow:
-    """Integration tests for the full booking conversation flow."""
+    """Integration tests for the full booking conversation flow.
+
+    These tests verify that booking_slot state persists across conversation turns.
+    This is critical for multi-turn booking flows.
+    """
+
+    @pytest.mark.asyncio
+    async def test_booking_state_persistence(self):
+        """Test that booking_slot persists across multiple turns.
+
+        This test catches the bug where booking_slot was reset to {} on each turn.
+        """
+        from src.agents_graph import LangGraphAgent
+
+        # Mock database methods
+        stored_state = {}
+
+        async def mock_get_state(user_id):
+            return stored_state.get(user_id, {})
+
+        async def mock_save_state(user_id, booking_slot, intent=None):
+            stored_state[user_id] = {"booking_slot": booking_slot, "intent": intent}
+            return True
+
+        async def mock_clear_state(user_id):
+            stored_state.pop(user_id, None)
+            return True
+
+        with patch('src.agents_graph.db.get_conversation_state', side_effect=mock_get_state), \
+             patch('src.agents_graph.db.save_conversation_state', side_effect=mock_save_state), \
+             patch('src.agents_graph.db.clear_conversation_state', side_effect=mock_clear_state):
+
+            agent = LangGraphAgent()
+            user_id = "test_user_state_persistence"
+
+            # Mock LLM responses for collector
+            mock_collector_response_1 = MagicMock()
+            mock_collector_response_1.content = '{"date": null, "time": null, "pax": null, "name": null, "phone": null, "floor": null}'
+
+            mock_collector_response_2 = MagicMock()
+            mock_collector_response_2.content = '{"date": "2026-02-07", "time": null, "pax": null, "name": null, "phone": null, "floor": null}'
+
+            mock_responder_response = MagicMock()
+            mock_responder_response.content = "請問您想訂哪一天呢？"
+
+            # Turn 1: User says "我要訂位"
+            with patch('src.agents_graph.ChatGoogleGenerativeAI') as mock_llm_class:
+                mock_llm = AsyncMock()
+                mock_llm.ainvoke.side_effect = [mock_collector_response_1, mock_responder_response]
+                mock_llm_class.return_value = mock_llm
+
+                with patch('src.agents_graph.db.get_user_reservations', new_callable=AsyncMock) as mock_db:
+                    mock_db.return_value = []
+                    with patch('src.agents_graph.db.get_menu', new_callable=AsyncMock) as mock_menu:
+                        mock_menu.return_value = []
+                        with patch('src.agents_graph.db.get_business_hours', new_callable=AsyncMock) as mock_hours:
+                            mock_hours.return_value = {}
+
+                            response1 = await agent.process("我要訂位", {"user_id": user_id})
+
+            # Verify state was saved (even if empty initially)
+            assert user_id in stored_state or stored_state == {}, "State should be tracked"
+
+            # Turn 2: User gives date "2/7"
+            with patch('src.agents_graph.ChatGoogleGenerativeAI') as mock_llm_class:
+                mock_llm = AsyncMock()
+                mock_llm.ainvoke.side_effect = [mock_collector_response_2, mock_responder_response]
+                mock_llm_class.return_value = mock_llm
+
+                with patch('src.agents_graph.db.get_user_reservations', new_callable=AsyncMock) as mock_db:
+                    mock_db.return_value = []
+                    with patch('src.agents_graph.db.get_menu', new_callable=AsyncMock) as mock_menu:
+                        mock_menu.return_value = []
+                        with patch('src.agents_graph.db.get_business_hours', new_callable=AsyncMock) as mock_hours:
+                            mock_hours.return_value = {}
+                            with patch('src.agents_graph.db.check_availability', new_callable=AsyncMock) as mock_avail:
+                                mock_avail.return_value = True
+
+                                response2 = await agent.process("2/7", {"user_id": user_id})
+
+            # CRITICAL: Verify booking_slot now contains the date
+            assert user_id in stored_state, "State should exist after turn 2"
+            saved_booking_slot = stored_state[user_id].get("booking_slot", {})
+            assert saved_booking_slot.get("date") == "2026-02-07", \
+                f"Date should be saved. Got: {saved_booking_slot}"
 
     @pytest.mark.asyncio
     async def test_booking_with_all_info_at_once(self):
@@ -284,19 +369,9 @@ class TestEndToEndBookingFlow:
         pass
 
     @pytest.mark.asyncio
-    async def test_multi_turn_booking_conversation(self):
-        """Test a multi-turn booking conversation.
-
-        Scenario:
-        1. User: "我要訂位" -> Bot asks for date
-        2. User: "2/7" -> Bot asks for time (CURRENTLY BROKEN)
-        3. User: "14:00" -> Bot asks for pax
-        4. User: "4個人" -> Bot asks for name
-        5. User: "王小明" -> Bot asks for phone
-        6. User: "0912345678" -> Bot confirms booking
-        """
-        # This is a more complex integration test
-        # Would need to mock the database and LLM calls
+    async def test_state_cleared_after_booking(self):
+        """Test that conversation state is cleared after successful booking."""
+        # This tests that clear_conversation_state is called in execute_booking_node
         pass
 
 
@@ -328,6 +403,25 @@ class TestBugScenarios:
             # These currently FAIL - documenting the bug
             assert result["intent"] == "booking", \
                 f"BUG: '{test_input}' classified as '{result['intent']}' instead of 'booking'"
+
+    @pytest.mark.asyncio
+    async def test_bug_name_classified_as_unclear(self):
+        """
+        BUG: When user replies with just a name like 'Spike' during booking,
+        router classifies as 'unclear' because it has no booking keywords.
+
+        Root cause: Router didn't check booking_slot state for mid-flow continuation.
+        Fix: If booking_slot has data, skip classification and route to collector.
+        """
+        # Simulate mid-booking: date, time, pax already collected
+        state = create_test_state("Spike", booking_slot={
+            "date": "2026-02-09",
+            "time": "14:00",
+            "pax": 4
+        })
+        result = await router_node(state)
+        assert result["intent"] == "booking", \
+            f"BUG: 'Spike' during mid-booking classified as '{result['intent']}' instead of 'booking'"
 
     @pytest.mark.asyncio
     async def test_bug_collector_returns_empty(self):

@@ -10,12 +10,14 @@ import os
 from typing import TypedDict, Annotated, List, Dict, Any, Literal
 from datetime import datetime
 import operator
+import operator
 import re
 
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
+from langgraph_checkpoint_firestore import FirestoreSaver
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, trim_messages, BaseMessage
 
 from src.database import db
 
@@ -28,13 +30,25 @@ logger = logging.getLogger(__name__)
 # STATE DEFINITION
 # ============================================================================
 
+def manage_messages(existing: List[Any], update: List[Any] | str) -> List[Any]:
+    """
+    Custom reducer for managing messages.
+    - If update starts with "__OVERWRITE__", replace the entire history.
+    - Otherwise, append the update to existing history.
+    """
+    if isinstance(update, list) and len(update) > 0 and update[0] == "__OVERWRITE__":
+        return update[1:]
+    if isinstance(update, list):
+        return existing + update
+    return existing
+
 class AgentState(TypedDict):
     """
     Central state object that flows through all nodes.
     This replaces implicit chat history with explicit state tracking.
     """
     # Conversation context
-    messages: Annotated[List[Any], operator.add]
+    messages: Annotated[List[Any], manage_messages]
     
     # User information
     user_id: str
@@ -72,7 +86,7 @@ def detect_language(text: str) -> Literal["zh-TW", "en"]:
 
 def get_missing_booking_fields(booking_slot: Dict[str, Any]) -> List[str]:
     """Check which required fields are missing from booking slot."""
-    required = ["date", "time", "pax", "name", "phone"]
+    required = ["date", "time", "pax", "name", "phone", "floor"]
     return [field for field in required if not booking_slot.get(field)]
 
 
@@ -91,6 +105,14 @@ async def router_node(state: AgentState) -> AgentState:
     logger.info("[ROUTER] Classifying user intent...")
 
     user_input = state["messages"][-1].content if state["messages"] else ""
+
+    # === PHASE 0: Mid-booking continuation ===
+    # If booking_slot already has data, we're in the middle of a booking flow.
+    # Route directly to collector without re-classifying intent.
+    if state.get("booking_slot") and any(state["booking_slot"].values()):
+        state["intent"] = "booking"
+        logger.info("[ROUTER] Detected intent: booking (mid-flow continuation)")
+        return state
 
     # === PHASE 1: Fast keyword/regex matching ===
     keywords_booking = ["訂位", "預約", "book", "reservation", "reserve", "訂"]
@@ -188,7 +210,17 @@ async def booking_collector_node(state: AgentState) -> AgentState:
         google_api_key=os.getenv("GOOGLE_API_KEY")
     )
     
-    user_input = state["messages"][-1].content if state["messages"] else ""
+    today_date = datetime.now().strftime("%Y-%m-%d")
+
+    # Construct conversation history for context
+    history_str = ""
+    # Get last 5 messages to provide sufficient context
+    recent_msgs = state["messages"][-5:] if state["messages"] else []
+    for msg in recent_msgs:
+        role = "用戶" if isinstance(msg, HumanMessage) else "系統"
+        content = msg.content
+        history_str += f"{role}: {content}\n"
+    
     current_date = datetime.now().strftime("%Y-%m-%d")
     
     # Fetch user profile for context (avoid re-asking)
@@ -219,8 +251,15 @@ async def booking_collector_node(state: AgentState) -> AgentState:
     - 姓名: {user_profile.get('name', 'null')}
     - 電話: {user_profile.get('phone', 'null')}
     
-    【用戶輸入】
-    {user_input}
+    【對話歷史】
+    {history_str}
+    
+    【當前訂位狀態】(已收集到的資訊)
+    {state['booking_slot']}
+    
+    請從最新的「用戶」回答中，結合「對話歷史」上下文，提取或更新訂位資訊。
+    例如：如果系統剛問「幾點？」，用戶回「2點」，則推斷為當天下午2點。
+    例如：如果系統剛問「哪一天？」，用戶回「明天」，則根據當前日期計算。
     
     請以 JSON 格式回傳:
     {{
@@ -431,10 +470,28 @@ async def response_generator_node(state: AgentState) -> AgentState:
             "time": "時間",
             "pax": "人數",
             "name": "大名",
-            "phone": "電話"
+            "phone": "電話",
+            "floor": "樓層偏好"
         }
-        missing_str = "、".join([field_names.get(f, f) for f in missing_fields])
-        task = f"請禮貌地詢問用戶的 {missing_str}。一次只問一個問題。"
+
+        # Determine what we already have
+        has_fields = [f for f in ["date", "time", "pax", "name", "phone", "floor"]
+                      if state["booking_slot"].get(f)]
+
+        # Priority order for asking
+        priority = ["date", "time", "pax", "name", "phone", "floor"]
+        next_field = next((f for f in priority if f in missing_fields), missing_fields[0])
+        
+        # Build context-aware task
+        if next_field == "floor":
+            # Floor uses hybrid response: LLM intro + fixed guide
+            task = "用一句簡短親切的話詢問用戶想坐哪個樓層，只要一句話，不要列出樓層選項。"
+            state["_floor_prompt"] = True
+        elif has_fields:
+            has_str = "、".join([field_names[f] for f in has_fields])
+            task = f"用戶已提供：{has_str}。現在請詢問{field_names[next_field]}。"
+        else:
+            task = f"請詢問用戶想預約的{field_names[next_field]}。"
     else:
         # General response - get user's last message
         user_msg = state["messages"][-1].content if state["messages"] else "你好"
@@ -476,7 +533,18 @@ async def response_generator_node(state: AgentState) -> AgentState:
     try:
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         state["final_response"] = response.content
-        
+
+        # Post-processing: Append fixed floor guide
+        if state.get("_floor_prompt"):
+            floor_guide = (
+                "\n\n"
+                "1樓 — 限時 90 分鐘\n"
+                "2樓 — 不限時，適合聊天\n"
+                "3樓 — 不限時，安靜區（禁止聊天）"
+            )
+            state["final_response"] = response.content.strip() + floor_guide
+            del state["_floor_prompt"]
+
         # Post-processing: Force language check
         if state["language"] == "zh-TW":
             # If response contains mostly English, re-translate
@@ -504,15 +572,63 @@ def create_booking_graph():
     """
     workflow = StateGraph(AgentState)
     
+    # Add message trimming node to prevent checkpoint size overflow
+    # Firestore has 1MB limit per document, trim to last 10 messages
+    def trim_messages_node(state: AgentState) -> dict:
+        """Trim message history to prevent Firestore size limits"""
+        import sys
+        
+        # Debug: Print state size
+        # Beware: sys.getsizeof is not accurate for recursive structures, but good proxy for top-level
+        msg_size = sys.getsizeof(str(state["messages"]))
+        total_size = sys.getsizeof(str(state))
+        
+        logger.info(f"[DEBUG] State size: Total={total_size}B, Messages={msg_size}B")
+        logger.info(f"[DEBUG] Messages count: {len(state['messages'])}")
+        
+        if len(state["messages"]) > 0:
+             logger.info(f"[DEBUG] Last message type: {type(state['messages'][-1])}")
+
+        # The default operator.add appends, so we need to overwrite.
+        # We use the custom manage_messages reducer we added.
+        
+        if len(state["messages"]) > 6:
+            # Keep system messages + last 4 messages (more aggressive trimming)
+            trimmed = trim_messages(
+                state["messages"],
+                max_tokens=6,  # Keep roughly last 4-6 messages token-wise
+                strategy="last",
+                token_counter=len,  # Use message count as token counter
+                allow_partial=False,
+                start_on="human",
+                include_system=False
+            )
+            
+            logger.info(f"[TRIM] Overwriting messages from {len(state['messages'])} to {len(trimmed)}")
+            return {"messages": ["__OVERWRITE__"] + trimmed}
+        
+        return {}
+    
     # Add nodes
+    workflow.add_node("trim_messages", trim_messages_node)
+    
+    def append_ai_message(state: AgentState) -> AgentState:
+        if state.get("final_response"):
+            ai_msg = AIMessage(content=state["final_response"])
+            return {"messages": [ai_msg]} 
+        return state
+
     workflow.add_node("router", router_node)
     workflow.add_node("booking_collector", booking_collector_node)
     workflow.add_node("business_rules", business_rules_node)
     workflow.add_node("execute_booking", execute_booking_node)
     workflow.add_node("responder", response_generator_node)
+    workflow.add_node("append_history", append_ai_message)
+
     
-    # Define edges
-    workflow.set_entry_point("router")
+    # Define edges - start with trimming
+    workflow.set_entry_point("trim_messages")
+    workflow.add_edge("trim_messages", "router")
     
     # Router decides next step
     def route_after_router(state: AgentState) -> str:
@@ -553,10 +669,21 @@ def create_booking_graph():
     # After execution, generate final response
     workflow.add_edge("execute_booking", "responder")
     
-    # Responder is the end
-    workflow.add_edge("responder", END)
+    # Responder appends history then ends
+    workflow.add_edge("responder", "append_history")
+    workflow.add_edge("append_history", END)
     
-    return workflow.compile()
+    # Initialize Checkpointer for automatic state management
+    try:
+        checkpointer = FirestoreSaver(
+            project_id=os.getenv("GOOGLE_CLOUD_PROJECT")
+        )
+        logger.info("[GRAPH] Using FirestoreSaver for state persistence")
+    except Exception as e:
+        logger.warning(f"[GRAPH] Failed to initialize FirestoreSaver: {e}. Using no checkpointer.")
+        checkpointer = None
+    
+    return workflow.compile(checkpointer=checkpointer)
 
 
 # ============================================================================
@@ -574,40 +701,35 @@ class LangGraphAgent:
     async def process(self, input_text: str, context: Dict[str, Any] = None) -> str:
         """
         Process user input through the LangGraph state machine.
-        Persists booking_slot across conversation turns.
+        Uses Checkpointer for automatic state persistence via thread_id.
         """
         user_id = context.get("user_id", "unknown_user") if context else "unknown_user"
 
-        # Load previous conversation state (booking_slot) from database
-        previous_state = await db.get_conversation_state(user_id)
-        previous_booking_slot = previous_state.get("booking_slot", {})
-        logger.info(f"[LANGGRAPH] Loaded previous state for {user_id}: {previous_booking_slot}")
+        # Configure thread_id for checkpointer to manage state automatically
+        config = {
+            "configurable": {
+                "thread_id": user_id  # Each user gets their own conversation thread
+            }
+        }
 
-        # Initialize state with previous booking_slot
+        # Initialize state with current message only
+        # Checkpointer will automatically merge with previous state
         initial_state: AgentState = {
             "messages": [HumanMessage(content=input_text)],
             "user_id": user_id,
             "user_profile": {},
             "intent": "unknown",
-            "booking_slot": previous_booking_slot,  # Load from session!
+            "booking_slot": {},  # Empty is fine, checkpointer handles persistence
             "next_step": "",
             "error_msg": "",
             "language": detect_language(input_text),
             "final_response": ""
         }
 
-        # Run the graph
+        # Run the graph with config
         try:
-            final_state = await self.graph.ainvoke(initial_state)
-
-            # Save updated booking_slot to database for next turn
-            if final_state.get("booking_slot"):
-                await db.save_conversation_state(
-                    user_id,
-                    final_state["booking_slot"],
-                    final_state.get("intent")
-                )
-
+            final_state = await self.graph.ainvoke(initial_state, config)
+            # No need to manually save - checkpointer does it automatically
             return final_state["final_response"]
         except Exception as e:
             logger.error(f"[LANGGRAPH] Graph execution failed: {e}")
