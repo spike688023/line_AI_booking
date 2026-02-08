@@ -10,12 +10,10 @@ import os
 from typing import TypedDict, Annotated, List, Dict, Any, Literal
 from datetime import datetime
 import operator
-import operator
 import re
 
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
-from langgraph_checkpoint_firestore import FirestoreSaver
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, trim_messages, BaseMessage
 
@@ -55,7 +53,7 @@ class AgentState(TypedDict):
     user_profile: Dict[str, Any]  # {name, phone, past_reservations}
     
     # Intent classification
-    intent: Literal["booking", "query_menu", "modify_reservation", "general_chat", "unclear", "unknown"]
+    intent: Literal["booking", "modify_reservation", "general_chat", "unclear", "unknown"]
     
     # Booking slot filling (for reservation flow)
     booking_slot: Dict[str, Any]  # {date, time, pax, name, phone, floor, allow_split}
@@ -108,15 +106,22 @@ async def router_node(state: AgentState) -> AgentState:
 
     # === PHASE 0: Mid-booking continuation ===
     # If booking_slot already has data, we're in the middle of a booking flow.
-    # Route directly to collector without re-classifying intent.
-    if state.get("booking_slot") and any(state["booking_slot"].values()):
-        state["intent"] = "booking"
-        logger.info("[ROUTER] Detected intent: booking (mid-flow continuation)")
-        return state
+    # But if user explicitly says booking keywords again, start a fresh booking.
+    keywords_booking = ["訂位", "預約", "book", "reservation", "reserve"]
+    has_booking_data = state.get("booking_slot") and any(state["booking_slot"].values())
+
+    if has_booking_data:
+        if any(kw in user_input for kw in keywords_booking):
+            # User explicitly starts a new booking → clear old state
+            state["booking_slot"] = {}
+            logger.info("[ROUTER] New booking requested, clearing previous booking_slot")
+        else:
+            # Continue mid-flow
+            state["intent"] = "booking"
+            logger.info("[ROUTER] Detected intent: booking (mid-flow continuation)")
+            return state
 
     # === PHASE 1: Fast keyword/regex matching ===
-    keywords_booking = ["訂位", "預約", "book", "reservation", "reserve", "訂"]
-    keywords_menu = ["菜單", "menu", "餐點", "food", "drink", "價格", "price"]
     keywords_modify = ["修改", "取消", "改", "change", "modify", "cancel"]
 
     intent = None  # None means "not sure yet"
@@ -137,8 +142,6 @@ async def router_node(state: AgentState) -> AgentState:
         intent = "booking"
     elif re.search(r'(\d+)\s*(個人|人|位|pax|people|guests?)', user_input):  # Pax pattern
         intent = "booking"
-    elif any(kw in user_input for kw in keywords_menu):
-        intent = "query_menu"
     elif any(kw in user_input for kw in keywords_modify):
         intent = "modify_reservation"
 
@@ -156,7 +159,7 @@ async def router_node(state: AgentState) -> AgentState:
 async def _classify_intent_with_llm(user_input: str) -> str:
     """
     Use LLM to classify intent when keyword matching fails.
-    Returns one of: booking, query_menu, modify_reservation, general_chat, unclear
+    Returns one of: booking, modify_reservation, general_chat, unclear
     """
     try:
         llm = ChatGoogleGenerativeAI(
@@ -170,9 +173,8 @@ async def _classify_intent_with_llm(user_input: str) -> str:
 
 類別：
 - booking: 想訂位、約位子、安排座位、帶朋友來、想去店裡
-- query_menu: 問菜單、餐點、飲料、價格
 - modify_reservation: 修改或取消訂位
-- general_chat: 打招呼、閒聊、問候語（如「你好」「嗨」）
+- general_chat: 打招呼、閒聊、問候語（如「你好」「嗨」）、問菜單或其他非訂位問題
 - unclear: 無法判斷、訊息太短或太模糊（如單一符號、亂碼、無意義文字）
 
 用戶說：「{user_input}」
@@ -183,7 +185,7 @@ async def _classify_intent_with_llm(user_input: str) -> str:
         raw_intent = response.content.strip().lower()
 
         # Validate and normalize the response
-        valid_intents = ["booking", "query_menu", "modify_reservation", "general_chat", "unclear"]
+        valid_intents = ["booking", "modify_reservation", "general_chat", "unclear"]
         for valid in valid_intents:
             if valid in raw_intent:
                 logger.info(f"[ROUTER] LLM classified as: {valid}")
@@ -428,14 +430,9 @@ async def response_generator_node(state: AgentState) -> AgentState:
         google_api_key=os.getenv("GOOGLE_API_KEY")
     )
     
-    # Fetch menu and business info for context
-    menu_str = ""
+    # Fetch business info for context
     hours_str = ""
     try:
-        menu_items = await db.get_menu()
-        menu_str = "\n".join([f"- {item['name']} (${item['price']}): {item.get('description', '')}" 
-                              for item in menu_items[:10]])  # Limit to 10 items
-        
         hours_config = await db.get_business_hours()
         hours_list = []
         for day, config in hours_config.items():
@@ -455,9 +452,8 @@ async def response_generator_node(state: AgentState) -> AgentState:
         task = """用戶的意圖不明確。請友善地詢問用戶想做什麼，並提供選項：
 
         1. 訂位
-        2. 查看菜單
-        3. 修改/取消訂位
-        4. 其他問題
+        2. 修改/取消訂位
+        3. 其他問題
 
         用簡短親切的方式詢問，不要列出編號，用自然的語句。"""
     elif state.get("error_msg"):
@@ -515,9 +511,6 @@ async def response_generator_node(state: AgentState) -> AgentState:
     - 1樓: 限時 90 分鐘
     - 2樓: 不限時，適合聊天
     - 3樓: 不限時，安靜區（禁止聊天）
-    
-    熱門餐點:
-    {menu_str}
     
     【你的任務】
     {task}
@@ -673,17 +666,7 @@ def create_booking_graph():
     workflow.add_edge("responder", "append_history")
     workflow.add_edge("append_history", END)
     
-    # Initialize Checkpointer for automatic state management
-    try:
-        checkpointer = FirestoreSaver(
-            project_id=os.getenv("GOOGLE_CLOUD_PROJECT")
-        )
-        logger.info("[GRAPH] Using FirestoreSaver for state persistence")
-    except Exception as e:
-        logger.warning(f"[GRAPH] Failed to initialize FirestoreSaver: {e}. Using no checkpointer.")
-        checkpointer = None
-    
-    return workflow.compile(checkpointer=checkpointer)
+    return workflow.compile()
 
 
 # ============================================================================
@@ -701,35 +684,41 @@ class LangGraphAgent:
     async def process(self, input_text: str, context: Dict[str, Any] = None) -> str:
         """
         Process user input through the LangGraph state machine.
-        Uses Checkpointer for automatic state persistence via thread_id.
+        Uses lightweight Firestore persistence (one document per user).
         """
         user_id = context.get("user_id", "unknown_user") if context else "unknown_user"
 
-        # Configure thread_id for checkpointer to manage state automatically
-        config = {
-            "configurable": {
-                "thread_id": user_id  # Each user gets their own conversation thread
-            }
-        }
+        # Load previous conversation state from Firestore
+        prev_state = await db.get_conversation_state(user_id)
+        prev_booking_slot = prev_state.get("booking_slot", {}) if prev_state else {}
+        prev_intent = prev_state.get("intent", "unknown") if prev_state else "unknown"
 
-        # Initialize state with current message only
-        # Checkpointer will automatically merge with previous state
+        logger.info(f"[LANGGRAPH] Loaded state for {user_id}: booking_slot={prev_booking_slot}, intent={prev_intent}")
+
         initial_state: AgentState = {
             "messages": [HumanMessage(content=input_text)],
             "user_id": user_id,
             "user_profile": {},
-            "intent": "unknown",
-            "booking_slot": {},  # Empty is fine, checkpointer handles persistence
+            "intent": prev_intent if prev_booking_slot else "unknown",
+            "booking_slot": prev_booking_slot,
             "next_step": "",
             "error_msg": "",
             "language": detect_language(input_text),
             "final_response": ""
         }
 
-        # Run the graph with config
         try:
-            final_state = await self.graph.ainvoke(initial_state, config)
-            # No need to manually save - checkpointer does it automatically
+            final_state = await self.graph.ainvoke(initial_state)
+
+            # Save updated state to Firestore (skip if booking was just completed)
+            if final_state.get("booking_slot") and any(final_state["booking_slot"].values()):
+                await db.save_conversation_state(
+                    user_id,
+                    final_state["booking_slot"],
+                    intent=final_state.get("intent")
+                )
+                logger.info(f"[LANGGRAPH] Saved state for {user_id}: {final_state['booking_slot']}")
+
             return final_state["final_response"]
         except Exception as e:
             logger.error(f"[LANGGRAPH] Graph execution failed: {e}")

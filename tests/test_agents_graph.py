@@ -119,13 +119,6 @@ class TestRouterNode:
         result = await router_node(state)
         assert result["intent"] == "booking"
 
-    @pytest.mark.asyncio
-    async def test_menu_intent(self):
-        """Test: Menu query should be classified as query_menu."""
-        state = create_test_state("請問有什麼菜單？")
-        result = await router_node(state)
-        assert result["intent"] == "query_menu"
-
     # === LLM fallback tests (requires mocking) ===
 
     @pytest.mark.asyncio
@@ -422,6 +415,24 @@ class TestBugScenarios:
         result = await router_node(state)
         assert result["intent"] == "booking", \
             f"BUG: 'Spike' during mid-booking classified as '{result['intent']}' instead of 'booking'"
+
+    @pytest.mark.asyncio
+    async def test_abandoned_booking_then_restart(self):
+        """
+        When user abandons a booking mid-flow and later says '我要訂位' again,
+        the old booking_slot should be cleared and a fresh booking starts.
+        """
+        # Simulate abandoned booking with stale data
+        state = create_test_state("我要訂位", booking_slot={
+            "date": "2026-02-09",
+            "time": "14:00",
+            "pax": 4
+        })
+        result = await router_node(state)
+        assert result["intent"] == "booking"
+        # booking_slot should be cleared
+        assert result["booking_slot"] == {}, \
+            f"Expected empty booking_slot after restart, got: {result['booking_slot']}"
 
     @pytest.mark.asyncio
     async def test_bug_collector_returns_empty(self):
