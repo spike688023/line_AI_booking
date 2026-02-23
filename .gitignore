@@ -49,3 +49,6 @@ app_new.py
 inspect_adk.py
 test_adk_gemini.py
 test_output.txt
+
+# Custom directories
+interview_questions/
