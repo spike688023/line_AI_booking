@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from linebot import LineBotApi, WebhookParser
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, FollowEvent
 from src.database import db
+from src.agents_graph import langgraph_agent
 
 # Initialize Logging
 logging.basicConfig(
@@ -291,14 +292,14 @@ async def callback(request: Request):
             processed_events.append(eid)
 
         if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
-            await handle_message_async(event, per_request_api)
+            await handle_message_async(event, per_request_api, store_id)
         elif isinstance(event, FollowEvent):
             await handle_follow_async(event, per_request_api)
 
     return "OK"
 
 
-async def handle_message_async(event, line_bot_api: LineBotApi):
+async def handle_message_async(event, line_bot_api: LineBotApi, store_id: str = ""):
     user_id = event.source.user_id
     user_message = event.message.text
 
@@ -314,10 +315,10 @@ async def handle_message_async(event, line_bot_api: LineBotApi):
             logger.error(f"Error sending reply: {e}")
         return
 
-    from src.agents_graph import langgraph_agent
-
     try:
-        response_text = await langgraph_agent.process(user_message, context={"user_id": user_id})
+        response_text = await langgraph_agent.process(
+            user_message, context={"user_id": user_id}, store_id=store_id
+        )
     except Exception as e:
         logger.error(f"Error processing message: {e}")
         response_text = "Sorry, I encountered an error processing your request."

@@ -123,3 +123,59 @@ def test_callback_unknown_destination(client):
             headers={"X-Line-Signature": "any", "Content-Type": "application/json"},
         )
     assert response.status_code == 404
+
+
+# --- T7: store_id wired through to process() ---
+
+def _make_message_event_body(destination: str, user_id: str, text: str) -> bytes:
+    import json
+    return json.dumps({
+        "destination": destination,
+        "events": [{
+            "type": "message",
+            "replyToken": "reply-token-123",
+            "source": {"type": "user", "userId": user_id},
+            "message": {"type": "text", "id": "msg-1", "text": text},
+            "webhookEventId": "evt-unique-1",
+            "timestamp": 0,
+        }]
+    }).encode()
+
+
+def test_callback_passes_store_id_to_process(client):
+    """process() must be called with the store_id extracted from the webhook destination."""
+    body = _make_message_event_body("Utest_store_id", "Uuser123", "我想訂位")
+    sig = _make_signature(STORE_SECRET, body)
+
+    with patch("app.db") as mock_db, \
+         patch("app.langgraph_agent") as mock_agent:
+
+        mock_db.get_store_by_destination = AsyncMock(return_value={
+            "store_id": "store_abc",
+            "line_bot_id": "Utest_store_id",
+        })
+        mock_db.get_store_credentials = AsyncMock(return_value=(STORE_TOKEN, STORE_SECRET))
+        mock_agent.process = AsyncMock(return_value="好的，請問您想預約哪天？")
+
+        with patch("app.LineBotApi"), patch("app.WebhookParser") as MockParser:
+            from unittest.mock import MagicMock
+            from linebot.models import MessageEvent, TextMessage, Source
+            mock_event = MagicMock(spec=MessageEvent)
+            mock_event.message = MagicMock(spec=TextMessage)
+            mock_event.message.text = "我想訂位"
+            mock_event.source = MagicMock()
+            mock_event.source.user_id = "Uuser123"
+            mock_event.webhook_event_id = "evt-unique-1"
+            MockParser.return_value.parse = MagicMock(return_value=[mock_event])
+
+            response = client.post(
+                "/callback",
+                content=body,
+                headers={"X-Line-Signature": sig, "Content-Type": "application/json"},
+            )
+
+    assert response.status_code == 200
+    mock_agent.process.assert_called_once()
+    call_kwargs = mock_agent.process.call_args
+    assert call_kwargs.kwargs.get("store_id") == "store_abc" or \
+           (len(call_kwargs.args) >= 3 and call_kwargs.args[2] == "store_abc")
