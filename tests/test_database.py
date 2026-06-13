@@ -16,6 +16,81 @@ def db(mock_firestore):
         database.client = mock_firestore.return_value
         return database
 
+# ============================================================
+# T1: New store-level methods
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_get_store_by_destination_found(db):
+    mock_doc = MagicMock()
+    mock_doc.id = "store_abc"
+    mock_doc.to_dict.return_value = {"line_bot_id": "Uabc", "name": "Test Café"}
+    db.client.collection.return_value.where.return_value.limit.return_value.stream.return_value = iter([mock_doc])
+
+    result = await db.get_store_by_destination("Uabc")
+
+    assert result is not None
+    assert result["store_id"] == "store_abc"
+    assert result["name"] == "Test Café"
+
+
+@pytest.mark.asyncio
+async def test_get_store_by_destination_not_found(db):
+    db.client.collection.return_value.where.return_value.limit.return_value.stream.return_value = iter([])
+
+    result = await db.get_store_by_destination("Uunknown")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_store_credentials(db):
+    mock_doc = MagicMock()
+    mock_doc.exists = True
+    mock_doc.to_dict.return_value = {
+        "channel_access_token": "token_xyz",
+        "channel_secret": "secret_abc"
+    }
+    db.client.collection.return_value.document.return_value.get.return_value = mock_doc
+
+    token, secret = await db.get_store_credentials("store_abc")
+
+    assert token == "token_xyz"
+    assert secret == "secret_abc"
+
+
+@pytest.mark.asyncio
+async def test_get_table_config(db):
+    mock_doc = MagicMock()
+    mock_doc.exists = True
+    mock_doc.to_dict.return_value = {
+        "tables": {"2F-A1": {"capacity": 2, "floor": 2}},
+        "total_capacity": 2
+    }
+    # stores/{store_id}/config/table_layout
+    db.client.collection.return_value.document.return_value.collection.return_value.document.return_value.get.return_value = mock_doc
+
+    result = await db.get_table_config("store_abc")
+
+    assert result["total_capacity"] == 2
+    assert "2F-A1" in result["tables"]
+
+
+@pytest.mark.asyncio
+async def test_get_table_config_missing(db):
+    mock_doc = MagicMock()
+    mock_doc.exists = False
+    db.client.collection.return_value.document.return_value.collection.return_value.document.return_value.get.return_value = mock_doc
+
+    result = await db.get_table_config("store_abc")
+
+    assert result == {"tables": {}, "total_capacity": 0}
+
+
+# ============================================================
+# Pre-existing tests
+# ============================================================
+
 @pytest.mark.asyncio
 async def test_check_availability(db):
     # Mock behavior: Always return True for now (as per current implementation)

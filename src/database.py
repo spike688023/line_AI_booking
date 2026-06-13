@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from google.cloud import firestore
 from google.oauth2 import service_account
@@ -881,6 +881,66 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to clear conversation state: {e}")
             return False
+
+    # ============================================================================
+    # MULTI-TENANT: STORE MANAGEMENT
+    # ============================================================================
+
+    async def get_store_by_destination(self, destination: str) -> Optional[Dict]:
+        """Return the stores document whose line_bot_id matches destination, or None."""
+        if not self.client:
+            return None
+        try:
+            docs = (
+                self.client.collection("stores")
+                .where("line_bot_id", "==", destination)
+                .limit(1)
+                .stream()
+            )
+            for doc in docs:
+                data = doc.to_dict()
+                data["store_id"] = doc.id
+                return data
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get store by destination: {e}")
+            return None
+
+    async def get_store_credentials(self, store_id: str) -> Tuple[str, str]:
+        """Return (channel_access_token, channel_secret) from stores/{store_id}."""
+        if not self.client:
+            return ("", "")
+        try:
+            doc = self.client.collection("stores").document(store_id).get()
+            if doc.exists:
+                data = doc.to_dict()
+                return (
+                    data.get("channel_access_token", ""),
+                    data.get("channel_secret", ""),
+                )
+            return ("", "")
+        except Exception as e:
+            logger.error(f"Failed to get store credentials: {e}")
+            return ("", "")
+
+    async def get_table_config(self, store_id: str) -> Dict:
+        """Return table layout from stores/{store_id}/config/table_layout."""
+        if not self.client:
+            return {"tables": {}, "total_capacity": 0}
+        try:
+            doc = (
+                self.client.collection("stores")
+                .document(store_id)
+                .collection("config")
+                .document("table_layout")
+                .get()
+            )
+            if doc.exists:
+                return doc.to_dict()
+            return {"tables": {}, "total_capacity": 0}
+        except Exception as e:
+            logger.error(f"Failed to get table config: {e}")
+            return {"tables": {}, "total_capacity": 0}
 
 
 # Singleton instance
