@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Store Onboarding</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/picnic">
+    <style>
+        body { background: #f5f5f5; padding: 20px; }
+        .card { max-width: 540px; margin: 40px auto; background: white; border-radius: 8px; padding: 32px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h2 { margin-bottom: 4px; }
+        p.sub { color: #666; margin-bottom: 24px; }
+        label { display: block; margin-top: 16px; font-weight: bold; }
+        input[type=text], input[type=time], input[type=number] { width: 100%; margin-top: 4px; }
+        .row { display: flex; gap: 16px; }
+        .row > * { flex: 1; }
+        .hint { color: #888; font-size: 13px; margin-top: 4px; }
+        .actions { margin-top: 28px; }
+        button[type=submit] { width: 100%; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Welcome! Set up your store</h2>
+        <p class="sub">Store ID: <code>{{ store_id }}</code></p>
+
+        <form action="/onboarding/complete" method="post">
+            <label>Store Name</label>
+            <input type="text" name="store_name" placeholder="e.g. Sunrise Coffee" required>
+
+            <label>Opening Hours (applied to all days)</label>
+            <div class="row">
+                <div>
+                    <label style="font-weight:normal">Open</label>
+                    <input type="text" name="open_time" value="10:00">
+                </div>
+                <div>
+                    <label style="font-weight:normal">Close</label>
+                    <input type="text" name="close_time" value="22:00">
+                </div>
+            </div>
+            <p class="hint">You can adjust per-day hours in the admin panel later.</p>
+
+            <label>Table Setup</label>
+            <div class="row">
+                <div>
+                    <label style="font-weight:normal">Number of tables</label>
+                    <input type="number" name="total_tables" value="10" min="1">
+                </div>
+                <div>
+                    <label style="font-weight:normal">Seats per table</label>
+                    <input type="number" name="capacity_per_table" value="4" min="1">
+                </div>
+            </div>
+
+            <div class="actions">
+                <button type="submit" class="success">Save &amp; Sign in with Google</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

@@ -123,6 +123,47 @@ class Database:
             logger.error(f"Failed to get store by admin email: {e}")
             return None
 
+    async def create_or_update_store(self, store_id: str, data: Dict) -> bool:
+        """Set (merge=True) the stores/{store_id} document with the given fields."""
+        if not self.client:
+            return False
+        try:
+            self.client.collection("stores").document(store_id).set(data, merge=True)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create/update store {store_id}: {e}")
+            return False
+
+    async def add_admin_email_to_store(self, store_id: str, email: str) -> bool:
+        """Append email to the admin_emails array field on stores/{store_id}."""
+        if not self.client:
+            return False
+        try:
+            self.client.collection("stores").document(store_id).update({
+                "admin_emails": firestore.ArrayUnion([email])
+            })
+            return True
+        except Exception as e:
+            logger.error(f"Failed to add admin email to store {store_id}: {e}")
+            return False
+
+    async def update_table_layout(self, store_id: str, tables: Dict, total_capacity: int) -> bool:
+        """Write table layout to stores/{store_id}/config/table_layout."""
+        if not self.client:
+            return False
+        try:
+            (
+                self.client.collection("stores")
+                .document(store_id)
+                .collection("config")
+                .document("table_layout")
+                .set({"tables": tables, "total_capacity": total_capacity})
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update table layout for store {store_id}: {e}")
+            return False
+
     # ============================================================================
     # AVAILABILITY & SEATING
     # ============================================================================

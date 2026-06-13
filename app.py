@@ -56,6 +56,14 @@ GOOGLE_REDIRECT_URI = f"{_REDIRECT_BASE}/auth/google/callback"
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
+# --- LINE OAuth config (marketplace onboarding) ---
+
+LINE_CLIENT_ID = os.getenv("LINE_CHANNEL_ID", "")
+LINE_CLIENT_SECRET_FOR_OAUTH = os.getenv("LINE_CHANNEL_SECRET_FOR_OAUTH", "")
+_LINE_REDIRECT_URI = f"{_REDIRECT_BASE}/auth/line/callback"
+LINE_TOKEN_URL = "https://api.line.me/oauth2/v2.1/token"
+LINE_BOT_INFO_URL = "https://api.line.me/v2/bot/info"
+
 
 async def _exchange_google_code_for_email(code: str) -> str:
     """Exchange an OAuth authorization code for the user's Google email."""
@@ -117,7 +125,7 @@ async def admin_login(request: Request):
 
 
 @app.get("/auth/google/callback")
-async def google_oauth_callback(code: str = None):
+async def google_oauth_callback(request: Request, code: str = None):
     if not code:
         raise HTTPException(status_code=400, detail="Missing authorization code")
     try:
@@ -125,6 +133,18 @@ async def google_oauth_callback(code: str = None):
     except Exception as e:
         logger.error(f"Google token exchange failed: {e}")
         raise HTTPException(status_code=400, detail="Failed to exchange code")
+
+    # Onboarding flow: bind email to the store that just completed LINE OAuth
+    onboarding_store_id = request.cookies.get("line_onboarding_store_id")
+    if onboarding_store_id:
+        await db.add_admin_email_to_store(onboarding_store_id, email)
+        token = _create_admin_jwt(onboarding_store_id, email)
+        response = RedirectResponse(url="/admin/dashboard", status_code=303)
+        response.set_cookie(key="admin_token", value=token, httponly=True)
+        response.delete_cookie("line_onboarding_store_id")
+        return response
+
+    # Normal login flow
     store = await db.get_store_by_admin_email(email)
     if store is None:
         raise HTTPException(status_code=403, detail="Email not authorized for any store")
@@ -132,6 +152,80 @@ async def google_oauth_callback(code: str = None):
     response = RedirectResponse(url="/admin/dashboard", status_code=303)
     response.set_cookie(key="admin_token", value=token, httponly=True)
     return response
+
+
+# --- LINE OAuth + Onboarding Routes ---
+
+async def _exchange_line_code_for_credentials(code: str) -> tuple:
+    """Exchange LINE OAuth code. Returns (channel_access_token, channel_secret, line_bot_id)."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(LINE_TOKEN_URL, data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": _LINE_REDIRECT_URI,
+            "client_id": LINE_CLIENT_ID,
+            "client_secret": LINE_CLIENT_SECRET_FOR_OAUTH,
+        })
+        resp.raise_for_status()
+        channel_access_token = resp.json()["access_token"]
+        bot_resp = await client.get(LINE_BOT_INFO_URL, headers={
+            "Authorization": f"Bearer {channel_access_token}"
+        })
+        bot_resp.raise_for_status()
+        line_bot_id = bot_resp.json()["userId"]
+    return channel_access_token, LINE_CLIENT_SECRET_FOR_OAUTH, line_bot_id
+
+
+@app.get("/auth/line/callback")
+async def line_oauth_callback(code: str = None):
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code")
+    try:
+        channel_access_token, channel_secret, line_bot_id = await _exchange_line_code_for_credentials(code)
+    except Exception as e:
+        logger.error(f"LINE token exchange failed: {e}")
+        raise HTTPException(status_code=400, detail="Failed to exchange LINE code")
+    await db.create_or_update_store(line_bot_id, {
+        "line_bot_id": line_bot_id,
+        "channel_access_token": channel_access_token,
+        "channel_secret": channel_secret,
+    })
+    response = RedirectResponse(url="/onboarding", status_code=303)
+    response.set_cookie(key="line_onboarding_store_id", value=line_bot_id, httponly=True)
+    return response
+
+
+@app.get("/onboarding", response_class=HTMLResponse)
+async def onboarding_page(request: Request):
+    store_id = request.cookies.get("line_onboarding_store_id")
+    if not store_id:
+        raise HTTPException(status_code=403, detail="No active onboarding session")
+    return templates.TemplateResponse("onboarding.html", {"request": request, "store_id": store_id})
+
+
+@app.post("/onboarding/complete")
+async def onboarding_complete(
+    request: Request,
+    store_name: str = Form(...),
+    open_time: str = Form("10:00"),
+    close_time: str = Form("22:00"),
+    total_tables: int = Form(10),
+    capacity_per_table: int = Form(4),
+):
+    store_id = request.cookies.get("line_onboarding_store_id")
+    if not store_id:
+        raise HTTPException(status_code=403, detail="No active onboarding session")
+
+    await db.create_or_update_store(store_id, {"name": store_name})
+
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    hours = {day: {"open": open_time, "close": close_time, "closed": False} for day in days}
+    await db.update_business_hours(store_id, hours)
+
+    tables = {str(i + 1): {"capacity": capacity_per_table, "floor": 1} for i in range(total_tables)}
+    await db.update_table_layout(store_id, tables, total_tables * capacity_per_table)
+
+    return RedirectResponse(url="/admin", status_code=303)
 
 @app.get("/admin/dashboard", response_class=HTMLResponse)
 async def admin_dashboard(request: Request, include_past: bool = False, store_id: str = Depends(get_current_store)):
