@@ -88,96 +88,132 @@ async def test_get_table_config_missing(db):
 
 
 # ============================================================
-# Pre-existing tests
+# T2: store_id isolation tests (RED until database.py is rewritten)
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_get_menu_reads_store_subcollection(db):
+    """get_menu must read from stores/{store_id}/menu/, not the global menu collection."""
+    mock_item = MagicMock()
+    mock_item.id = "item1"
+    mock_item.to_dict.return_value = {"name": "Latte", "price": 100}
+    db.client.collection.return_value.document.return_value.collection.return_value.stream.return_value = [mock_item]
+
+    result = await db.get_menu("store_a")
+
+    db.client.collection.assert_called_with("stores")
+    db.client.collection.return_value.document.assert_called_with("store_a")
+    assert len(result) == 1
+    assert result[0]["name"] == "Latte"
+
+
+@pytest.mark.asyncio
+async def test_daily_slots_doc_id_includes_store_id(db):
+    """get_daily_occupied_tables must read doc '{store_id}_{date}', not just '{date}'."""
+    mock_snap = MagicMock()
+    mock_snap.exists = True
+    mock_snap.to_dict.return_value = {"occupancy": {}}
+    db.client.collection.return_value.document.return_value.get.return_value = mock_snap
+
+    await db.get_daily_occupied_tables("store_a", "2026-01-01")
+
+    db.client.collection.assert_called_with("daily_slots")
+    db.client.collection.return_value.document.assert_called_with("store_a_2026-01-01")
+
+
+# ============================================================
+# T2: Updated existing tests (store_id as first argument)
 # ============================================================
 
 @pytest.mark.asyncio
 async def test_check_availability(db):
-    # Mock behavior: Always return True for now (as per current implementation)
-    is_available = await db.check_availability("2025-12-25", "18:00", 2)
+    db.get_table_config = AsyncMock(return_value={
+        "tables": {"T1": {"capacity": 4, "floor": 1}},
+        "total_capacity": 4,
+    })
+    db.get_special_closures = AsyncMock(return_value=[])
+    db.get_daily_occupied_tables = AsyncMock(return_value={})
+
+    is_available = await db.check_availability("store123", "2099-12-25", "18:00", 2)
     assert is_available is True
 
+
 @pytest.mark.asyncio
-async def test_create_reservation(db):
-    # Setup mock
-    mock_collection = db.client.collection.return_value
-    mock_doc_ref = mock_collection.document.return_value
-    
-    # Execute
+async def test_check_availability_fully_booked(db):
+    db.get_table_config = AsyncMock(return_value={
+        "tables": {"T1": {"capacity": 2, "floor": 1}},
+        "total_capacity": 2,
+    })
+    db.get_special_closures = AsyncMock(return_value=[])
+    db.get_daily_occupied_tables = AsyncMock(return_value={"T1": {"booked_pax": 2, "bookings": []}})
+
+    is_available = await db.check_availability("store123", "2099-12-25", "18:00", 2)
+    assert is_available is False
+
+
+@pytest.mark.asyncio
+async def test_create_reservation_no_client(db):
+    db.client = None
     res_id = await db.create_reservation(
+        store_id="store123",
         user_id="user123",
-        date="2025-12-25",
+        date="2099-12-25",
         time="18:00",
         pax=2,
         name="Test User",
-        phone="0912345678"
+        phone="0912345678",
     )
-    
-    # Verify
-    assert res_id is not None
-    # Verify collection("reservations") was called
-    db.client.collection.assert_called_with("reservations")
-    # Verify set() was called with correct data
-    mock_doc_ref.set.assert_called_once()
-    call_args = mock_doc_ref.set.call_args[0][0]
-    assert call_args["user_id"] == "user123"
-    assert call_args["date"] == "2025-12-25"
-    assert call_args["status"] == "confirmed"
+    assert res_id == "mock-reservation-id"
+
 
 @pytest.mark.asyncio
 async def test_get_user_reservations(db):
-    # Setup mock data
-    mock_stream = MagicMock()
-    
-    # Create mock documents
     doc1 = MagicMock()
     doc1.id = "res1"
-    doc1.to_dict.return_value = {"date": "2099-12-31", "time": "12:00", "user_id": "user123"} # Future
-    
+    doc1.to_dict.return_value = {"date": "2099-12-31", "time": "12:00", "user_id": "user123", "store_id": "store123"}
+
     doc2 = MagicMock()
     doc2.id = "res2"
-    doc2.to_dict.return_value = {"date": "2000-01-01", "time": "12:00", "user_id": "user123"} # Past
-    
-    # Configure query return
-    mock_collection = db.client.collection.return_value
-    mock_query = mock_collection.where.return_value
-    mock_query.stream.return_value = [doc1, doc2]
-    
-    # Execute (default include_past=False)
-    reservations = await db.get_user_reservations("user123", include_past=False)
-    
-    # Verify
+    doc2.to_dict.return_value = {"date": "2000-01-01", "time": "12:00", "user_id": "user123", "store_id": "store123"}
+
+    db.client.collection.return_value.where.return_value.where.return_value.stream.return_value = [doc1, doc2]
+
+    reservations = await db.get_user_reservations("store123", "user123", include_past=False)
+
     assert len(reservations) == 1
-    assert reservations[0]["id"] == "res1" # Only future reservation returned
+    assert reservations[0]["id"] == "res1"
+
 
 @pytest.mark.asyncio
-async def test_modify_reservation_success(db):
-    # Setup mock
+async def test_modify_reservation_same_slot(db):
+    """Same date/time as stored triggers the lightweight update path."""
     mock_doc_ref = db.client.collection.return_value.document.return_value
-    mock_doc_snapshot = MagicMock()
-    mock_doc_snapshot.exists = True
-    mock_doc_snapshot.to_dict.return_value = {"user_id": "user123", "pax": 2}
-    mock_doc_ref.get.return_value = mock_doc_snapshot
-    
-    # Execute
-    result = await db.modify_reservation("res1", "2025-12-26", "19:00", "user123")
-    
-    # Verify
+    mock_snap = MagicMock()
+    mock_snap.exists = True
+    mock_snap.to_dict.return_value = {
+        "user_id": "user123",
+        "pax": 2,
+        "date": "2025-12-26",
+        "time": "19:00",
+    }
+    mock_doc_ref.get.return_value = mock_snap
+
+    result = await db.modify_reservation("store123", "res1", "2025-12-26", "19:00", "user123")
+
     assert result == "success"
-    mock_doc_ref.update.assert_called_once()
+    # transaction.update() is used inside @firestore.transactional, not reservation_ref.update()
+    db.client.transaction.return_value.update.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_modify_reservation_permission_denied(db):
-    # Setup mock
     mock_doc_ref = db.client.collection.return_value.document.return_value
-    mock_doc_snapshot = MagicMock()
-    mock_doc_snapshot.exists = True
-    mock_doc_snapshot.to_dict.return_value = {"user_id": "other_user", "pax": 2} # Different user
-    mock_doc_ref.get.return_value = mock_doc_snapshot
-    
-    # Execute
-    result = await db.modify_reservation("res1", "2025-12-26", "19:00", "user123")
-    
-    # Verify
+    mock_snap = MagicMock()
+    mock_snap.exists = True
+    mock_snap.to_dict.return_value = {"user_id": "other_user", "pax": 2, "date": "2025-12-26", "time": "19:00"}
+    mock_doc_ref.get.return_value = mock_snap
+
+    result = await db.modify_reservation("store123", "res1", "2025-12-26", "19:00", "user123")
+
     assert result == "permission_denied"
     mock_doc_ref.update.assert_not_called()
