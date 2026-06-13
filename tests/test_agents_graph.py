@@ -104,9 +104,57 @@ async def test_process_passes_correct_thread_id():
     assert config["configurable"]["thread_id"] == "store_test_U999"
 
 
-# ── System prompt (T6 stub — tests will be extended in T6) ────────────────────
+# ── System prompt (T6) ───────────────────────────────────────────────────────
 
 def test_detect_language_still_exported():
     from src.agents_graph import detect_language
     assert detect_language("你好") == "zh-TW"
     assert detect_language("hello") == "en"
+
+
+def test_build_system_prompt_contains_menu():
+    from src.agents_graph import build_system_prompt
+    menu = [{"name": "Latte", "price": 120, "category": "Coffee"}]
+    hours = {"Monday": {"open": "09:00", "close": "18:00", "closed": False}}
+    table_config = {"tables": {"T1": {"floor": 1, "capacity": 4}}, "total_capacity": 4}
+    prompt = build_system_prompt(menu, hours, table_config, custom_prompt="")
+    assert "Latte" in prompt
+    assert "120" in prompt
+
+
+def test_build_system_prompt_contains_hours():
+    from src.agents_graph import build_system_prompt
+    hours = {"Monday": {"open": "10:00", "close": "22:00", "closed": False},
+             "Sunday": {"closed": True}}
+    prompt = build_system_prompt([], hours, {}, custom_prompt="")
+    assert "10:00" in prompt
+    assert "22:00" in prompt
+
+
+def test_build_system_prompt_includes_custom_prompt():
+    from src.agents_graph import build_system_prompt
+    prompt = build_system_prompt([], {}, {}, custom_prompt="請用台語回覆")
+    assert "台語" in prompt
+
+
+def test_build_system_prompt_works_without_custom_prompt():
+    from src.agents_graph import build_system_prompt
+    prompt = build_system_prompt([], {}, {}, custom_prompt="")
+    assert isinstance(prompt, str)
+    assert len(prompt) > 0
+
+
+@pytest.mark.asyncio
+async def test_two_stores_produce_different_prompts():
+    from src.agents_graph import build_system_prompt
+    menu_a = [{"name": "Espresso", "price": 80, "category": "Coffee"}]
+    menu_b = [{"name": "Matcha", "price": 100, "category": "Tea"}]
+    hours = {"Monday": {"open": "09:00", "close": "18:00", "closed": False}}
+    table_config = {}
+
+    prompt_a = build_system_prompt(menu_a, hours, table_config, custom_prompt="A店")
+    prompt_b = build_system_prompt(menu_b, hours, table_config, custom_prompt="B店")
+
+    assert prompt_a != prompt_b
+    assert "Espresso" in prompt_a
+    assert "Matcha" in prompt_b

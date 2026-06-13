@@ -32,6 +32,21 @@ class Database:
     # MULTI-TENANT: STORE MANAGEMENT
     # ============================================================================
 
+    async def get_store(self, store_id: str) -> Optional[Dict]:
+        """Return the stores/{store_id} document, or None."""
+        if not self.client:
+            return None
+        try:
+            doc = self.client.collection("stores").document(store_id).get()
+            if doc.exists:
+                data = doc.to_dict()
+                data["store_id"] = doc.id
+                return data
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get store {store_id}: {e}")
+            return None
+
     async def get_store_by_destination(self, destination: str) -> Optional[Dict]:
         """Return the stores document whose line_bot_id matches destination, or None."""
         if not self.client:
