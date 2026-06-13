@@ -1,4 +1,8 @@
 import os
+import hmac
+import hashlib
+import base64
+import json
 import logging
 from dotenv import load_dotenv
 from collections import deque
@@ -10,7 +14,6 @@ from fastapi import FastAPI, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from linebot import LineBotApi, WebhookParser
-from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage, FollowEvent
 from src.database import db
 
@@ -41,52 +44,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Admin Configuration
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123") # Default password
 
-# Initialize Line Bot
-CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-
-if not CHANNEL_SECRET or not CHANNEL_ACCESS_TOKEN:
-    logger.warning("Line Channel Secret or Access Token not set. Webhook will not work.")
-
-line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN) if CHANNEL_ACCESS_TOKEN else None
-parser = WebhookParser(CHANNEL_SECRET) if CHANNEL_SECRET else None
-
-# Admin Line User IDs (For notifications)
-# We now use DB for this, but keep env as fallback or initial seed
-ENV_ADMIN_IDS = os.getenv("ADMIN_LINE_USER_ID", "")
-
-async def get_admin_ids():
-    """Helper to get admin IDs from DB, falling back to env."""
-    settings = await db.get_notification_settings()
-    db_ids = settings.get("admin_ids", [])
-    
-    # Also include env IDs if not empty
-    env_ids = [aid.strip() for aid in ENV_ADMIN_IDS.split(",") if aid.strip()]
-    
-    # Combine unique IDs
-    return list(set(db_ids + env_ids))
-
 async def send_admin_notification(message: str):
-    """Send a push message to all admins."""
-    if not line_bot_api:
-        logger.warning("Cannot send admin notification: Line Bot API not initialized.")
-        return
-    
-    admin_ids = await get_admin_ids()
-    
-    if not admin_ids:
-        logger.warning("Cannot send admin notification: No admin IDs found.")
-        return
-
-    try:
-        # Multicast is more efficient for sending to multiple users
-        line_bot_api.multicast(
-            admin_ids,
-            TextSendMessage(text=f"🔔 [New Notification]\n{message}")
-        )
-        logger.info(f"Admin notification sent to {len(admin_ids)} admins.")
-    except Exception as e:
-        logger.error(f"Failed to send admin notification: {e}")
+    """Send a push message to all admins. Requires a line_bot_api instance — wired in T7."""
+    logger.warning("send_admin_notification: no per-store line_bot_api yet (wired in T7)")
+    return
 
 @app.get("/")
 async def root():
@@ -283,47 +244,66 @@ async def remove_notification_id(request: Request, user_id: str = Form(...)):
 
 # --- Webhook Routes ---
 
+def _verify_line_signature(channel_secret: str, body: bytes, signature: str) -> bool:
+    mac = hmac.new(channel_secret.encode(), body, hashlib.sha256).digest()
+    expected = base64.b64encode(mac).decode()
+    return hmac.compare_digest(expected, signature)
+
+
 @app.post("/callback")
 async def callback(request: Request):
-    # Get X-Line-Signature header value
+    body = await request.body()
     signature = request.headers.get("X-Line-Signature", "")
 
-    # Get request body as text
-    body = await request.body()
-    body_text = body.decode("utf-8")
+    logger.info("Request body: " + body.decode("utf-8"))
 
-    logger.info("Request body: " + body_text)
-
-    # Handle webhook body
+    # Step 1: extract destination from raw JSON (before signature check)
     try:
-        if parser:
-            events = parser.parse(body_text, signature)
-            for event in events:
-                # Deduplication check
-                if hasattr(event, "webhook_event_id"):
-                    eid = event.webhook_event_id
-                    if eid in processed_events:
-                        logger.info(f"Duplicate event {eid} detected. Skipping.")
-                        continue
-                    processed_events.append(eid)
+        payload = json.loads(body)
+        destination = payload.get("destination", "")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-                if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
-                    await handle_message_async(event)
-                elif isinstance(event, FollowEvent):
-                    await handle_follow_async(event)
-    except InvalidSignatureError:
-        logger.error("Invalid signature. Please check your channel access token/channel secret.")
+    # Step 2: look up store by destination
+    store = await db.get_store_by_destination(destination)
+    if store is None:
+        raise HTTPException(status_code=404, detail="Unknown destination")
+
+    store_id = store["store_id"]
+
+    # Step 3: fetch per-store credentials and verify HMAC
+    channel_access_token, channel_secret = await db.get_store_credentials(store_id)
+    if not _verify_line_signature(channel_secret, body, signature):
+        logger.error(f"Invalid signature for store {store_id}")
         raise HTTPException(status_code=400, detail="Invalid signature")
+
+    # Step 4: construct per-request LINE clients
+    per_request_api = LineBotApi(channel_access_token)
+    per_request_parser = WebhookParser(channel_secret)
+
+    events = per_request_parser.parse(body.decode("utf-8"), signature)
+    for event in events:
+        if hasattr(event, "webhook_event_id"):
+            eid = event.webhook_event_id
+            if eid in processed_events:
+                logger.info(f"Duplicate event {eid} detected. Skipping.")
+                continue
+            processed_events.append(eid)
+
+        if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
+            await handle_message_async(event, per_request_api)
+        elif isinstance(event, FollowEvent):
+            await handle_follow_async(event, per_request_api)
 
     return "OK"
 
-async def handle_message_async(event):
+
+async def handle_message_async(event, line_bot_api: LineBotApi):
     user_id = event.source.user_id
     user_message = event.message.text
-    
+
     logger.info(f"Received message from {user_id}: {user_message}")
 
-    # Helper command to get User ID
     if user_message.strip().lower() == "id":
         try:
             line_bot_api.reply_message(
@@ -333,37 +313,28 @@ async def handle_message_async(event):
         except Exception as e:
             logger.error(f"Error sending reply: {e}")
         return
-    
-    # Integrate with LangGraph Agent (New Architecture)
+
     from src.agents_graph import langgraph_agent
 
     try:
-        # Await the async process directly in the main loop
         response_text = await langgraph_agent.process(user_message, context={"user_id": user_id})
     except Exception as e:
         logger.error(f"Error processing message: {e}")
         response_text = "Sorry, I encountered an error processing your request."
-    
-    # Reply using LINE API
-    # Try push_message first (no token expiration), fallback to reply_message
+
     try:
-        line_bot_api.push_message(
-            user_id,
-            TextSendMessage(text=response_text)
-        )
+        line_bot_api.push_message(user_id, TextSendMessage(text=response_text))
         logger.info(f"Sent push message to {user_id}")
     except Exception as e:
         logger.warning(f"Push message failed: {e}, trying reply_message")
         try:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=response_text)
-            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=response_text))
             logger.info(f"Sent reply message to {user_id}")
         except Exception as e2:
             logger.error(f"Both push and reply failed: {e2}")
 
-async def handle_follow_async(event):
+
+async def handle_follow_async(event, line_bot_api: LineBotApi):
     welcome_text = (
         "您好！我是「言文字」AI 訂位系統 ☕️\n\n"
         "很高興能為您服務！我可以幫您：\n"
@@ -372,10 +343,7 @@ async def handle_follow_async(event):
         "請問今天有什麼我可以幫您的嗎？"
     )
     try:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=welcome_text)
-        )
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=welcome_text))
     except Exception as e:
         logger.error(f"Error sending welcome reply: {e}")
 
