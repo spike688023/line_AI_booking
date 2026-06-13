@@ -1,6 +1,7 @@
 import pytest
+import jwt as pyjwt
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import os
 import hmac
 import hashlib
@@ -9,8 +10,15 @@ import json
 
 # Set dummy env vars before importing app to avoid errors
 os.environ["GOOGLE_CLOUD_PROJECT"] = "dummy"
+os.environ["JWT_SECRET"] = "test_jwt_secret"
 
 from app import app
+
+JWT_SECRET = "test_jwt_secret"
+
+def _make_admin_jwt(store_id: str = "store_abc", email: str = "admin@example.com") -> str:
+    return pyjwt.encode({"store_id": store_id, "email": email}, JWT_SECRET, algorithm="HS256")
+
 
 @pytest.fixture
 def client():
@@ -27,44 +35,102 @@ def mock_db():
         mock.modify_reservation = AsyncMock(return_value="success")
         yield mock
 
-def test_admin_login_page(client):
+
+# --- T8: Google SSO login page ---
+
+def test_admin_login_page_shows_google_signin(client):
+    """GET /admin must render a Google sign-in link, not a password form."""
     response = client.get("/admin")
     assert response.status_code == 200
-    assert "Admin Login" in response.text
+    assert "google" in response.text.lower() or "Sign in" in response.text
 
-def test_admin_login_success(client):
-    # Default password is admin123
-    response = client.post("/admin/login", data={"password": "admin123"}, follow_redirects=False)
+
+def test_admin_login_page_no_password_form(client):
+    """Password form must be gone."""
+    response = client.get("/admin")
+    assert 'name="password"' not in response.text
+    assert "/admin/login" not in response.text
+
+
+# --- T8: Google OAuth callback ---
+
+def test_google_callback_valid_code_sets_jwt_cookie(client):
+    """Valid OAuth code → JWT cookie set → redirect to /admin/dashboard."""
+    fake_id_token = pyjwt.encode({"email": "admin@example.com", "sub": "123"}, "any", algorithm="HS256")
+
+    with patch("app.db") as mock_db, \
+         patch("app._exchange_google_code_for_email", new=AsyncMock(return_value="admin@example.com")):
+        mock_db.get_store_by_admin_email = AsyncMock(return_value={"store_id": "store_abc"})
+        response = client.get("/auth/google/callback?code=valid_code", follow_redirects=False)
+
     assert response.status_code == 303
     assert response.headers["location"] == "/admin/dashboard"
-    assert "admin_session=logged_in" in response.headers["set-cookie"]
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "admin_token=" in set_cookie
+    assert "HttpOnly" in set_cookie
 
-def test_admin_login_failure(client):
-    response = client.post("/admin/login", data={"password": "wrongpassword"})
-    assert response.status_code == 200
-    assert "Invalid Password" in response.text
 
-def test_dashboard_access_denied(client):
+def test_google_callback_jwt_contains_correct_claims(client):
+    """Issued JWT must contain store_id and email claims."""
+    with patch("app.db") as mock_db, \
+         patch("app._exchange_google_code_for_email", new=AsyncMock(return_value="admin@example.com")):
+        mock_db.get_store_by_admin_email = AsyncMock(return_value={"store_id": "store_abc"})
+        response = client.get("/auth/google/callback?code=valid_code", follow_redirects=False)
+
+    set_cookie = response.headers.get("set-cookie", "")
+    token = set_cookie.split("admin_token=")[1].split(";")[0]
+    claims = pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    assert claims["store_id"] == "store_abc"
+    assert claims["email"] == "admin@example.com"
+
+
+def test_google_callback_unknown_email_returns_403(client):
+    """Email not in any store's admin_emails → 403."""
+    with patch("app.db") as mock_db, \
+         patch("app._exchange_google_code_for_email", new=AsyncMock(return_value="nobody@example.com")):
+        mock_db.get_store_by_admin_email = AsyncMock(return_value=None)
+        response = client.get("/auth/google/callback?code=valid_code")
+
+    assert response.status_code == 403
+
+
+# --- T9: JWT-gated admin routes ---
+
+def test_dashboard_access_denied_no_jwt(client):
+    """No JWT cookie → redirect to /admin."""
     response = client.get("/admin/dashboard", follow_redirects=False)
-    # RedirectResponse default is 307
-    assert response.status_code == 307 
+    assert response.status_code == 307
     assert response.headers["location"] == "/admin"
 
-def test_dashboard_access_allowed(client, mock_db):
-    # Set cookie manually
-    client.cookies.set("admin_session", "logged_in")
+
+def test_dashboard_access_allowed_with_jwt(client, mock_db):
+    """Valid JWT cookie → dashboard renders with store data."""
+    token = _make_admin_jwt()
+    client.cookies.set("admin_token", token)
+    mock_db.get_all_reservations = AsyncMock(return_value=[
+        {"id": "1", "date": "2025-12-25", "time": "12:00", "name": "Test User", "phone": "0912345678", "pax": 2}
+    ])
     response = client.get("/admin/dashboard")
     assert response.status_code == 200
     assert "Reservation Management" in response.text
-    assert "Test User" in response.text # Check if mock data is rendered
+    assert "Test User" in response.text
 
-def test_cleanup_route(client, mock_db):
-    client.cookies.set("admin_session", "logged_in")
+
+def test_dashboard_access_denied_invalid_jwt(client):
+    """Tampered JWT → redirect to /admin."""
+    client.cookies.set("admin_token", "not.a.valid.jwt")
+    response = client.get("/admin/dashboard", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/admin"
+
+
+def test_cleanup_route_with_jwt(client, mock_db):
+    """Cleanup route accepts valid JWT."""
+    token = _make_admin_jwt()
+    client.cookies.set("admin_token", token)
     response = client.post("/admin/cleanup", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/admin/dashboard"
-
-    # Verify DB method was called
     mock_db.delete_past_reservations.assert_called_once()
 
 

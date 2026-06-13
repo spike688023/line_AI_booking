@@ -4,13 +4,17 @@ import hashlib
 import base64
 import json
 import logging
+from urllib.parse import urlencode
 from dotenv import load_dotenv
 from collections import deque
+
+import httpx
+import jwt as pyjwt
 
 # Load environment variables
 load_dotenv()
 
-from fastapi import FastAPI, Request, HTTPException, Form
+from fastapi import FastAPI, Request, HTTPException, Form, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from linebot import LineBotApi, WebhookParser
@@ -42,8 +46,52 @@ templates = Jinja2Templates(directory="templates")
 from fastapi.staticfiles import StaticFiles
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Admin Configuration
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123") # Default password
+# --- JWT + Google OAuth config ---
+
+JWT_SECRET = os.getenv("JWT_SECRET", "dev_secret_change_in_prod")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+_REDIRECT_BASE = os.getenv("OAUTH_REDIRECT_BASE_URL", "http://localhost:8080")
+GOOGLE_REDIRECT_URI = f"{_REDIRECT_BASE}/auth/google/callback"
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+
+
+async def _exchange_google_code_for_email(code: str) -> str:
+    """Exchange an OAuth authorization code for the user's Google email."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(GOOGLE_TOKEN_URL, data={
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "grant_type": "authorization_code",
+        })
+        resp.raise_for_status()
+        id_token_str = resp.json()["id_token"]
+    claims = pyjwt.decode(id_token_str, options={"verify_signature": False})
+    return claims["email"]
+
+
+def _create_admin_jwt(store_id: str, email: str) -> str:
+    return pyjwt.encode({"store_id": store_id, "email": email}, JWT_SECRET, algorithm="HS256")
+
+
+def _verify_admin_jwt(token: str) -> dict:
+    return pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+
+
+async def get_current_store(request: Request) -> str:
+    """FastAPI dependency: validates admin_token cookie, returns store_id."""
+    token = request.cookies.get("admin_token")
+    if not token:
+        raise HTTPException(status_code=307, headers={"Location": "/admin"})
+    try:
+        payload = _verify_admin_jwt(token)
+        return payload["store_id"]
+    except Exception:
+        raise HTTPException(status_code=307, headers={"Location": "/admin"})
+
 
 async def send_admin_notification(message: str):
     """Send a push message to all admins. Requires a line_bot_api instance — wired in T7."""
@@ -58,189 +106,145 @@ async def root():
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_login(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    auth_url = (
+        f"{GOOGLE_AUTH_URL}?response_type=code"
+        f"&client_id={GOOGLE_CLIENT_ID}"
+        f"&redirect_uri={GOOGLE_REDIRECT_URI}"
+        f"&scope=openid%20email"
+        f"&access_type=offline"
+    )
+    return templates.TemplateResponse("login.html", {"request": request, "auth_url": auth_url})
 
-@app.post("/admin/login", response_class=HTMLResponse)
-async def admin_login_post(request: Request, password: str = Form(...)):
-    if password == ADMIN_PASSWORD:
-        # In a real app, use session/cookies. For simplicity, we just redirect to dashboard
-        # But wait, without cookies, we can't protect /dashboard. 
-        # Let's use a simple query param hack or just render dashboard directly for this MVP.
-        # Better: Set a cookie.
-        response = RedirectResponse(url="/admin/dashboard", status_code=303)
-        response.set_cookie(key="admin_session", value="logged_in")
-        return response
-    else:
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid Password"})
+
+@app.get("/auth/google/callback")
+async def google_oauth_callback(code: str = None):
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code")
+    try:
+        email = await _exchange_google_code_for_email(code)
+    except Exception as e:
+        logger.error(f"Google token exchange failed: {e}")
+        raise HTTPException(status_code=400, detail="Failed to exchange code")
+    store = await db.get_store_by_admin_email(email)
+    if store is None:
+        raise HTTPException(status_code=403, detail="Email not authorized for any store")
+    token = _create_admin_jwt(store["store_id"], email)
+    response = RedirectResponse(url="/admin/dashboard", status_code=303)
+    response.set_cookie(key="admin_token", value=token, httponly=True)
+    return response
 
 @app.get("/admin/dashboard", response_class=HTMLResponse)
-async def admin_dashboard(request: Request, include_past: bool = False):
-    # Simple cookie check
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
+async def admin_dashboard(request: Request, include_past: bool = False, store_id: str = Depends(get_current_store)):
     reservations = await db.get_all_reservations(include_past=include_past)
     return templates.TemplateResponse("dashboard.html", {
-        "request": request, 
+        "request": request,
         "reservations": reservations,
-        "include_past": include_past
+        "include_past": include_past,
     })
 
 @app.post("/admin/cleanup")
-async def cleanup_reservations(request: Request):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
-    count = await db.delete_past_reservations()
-    # Redirect back to dashboard, maybe with a flash message (not implemented here)
+async def cleanup_reservations(store_id: str = Depends(get_current_store)):
+    await db.delete_past_reservations()
     return RedirectResponse(url="/admin/dashboard", status_code=303)
 
 @app.post("/admin/delete/{reservation_id}")
-async def delete_reservation(reservation_id: str, request: Request):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
+async def delete_reservation(reservation_id: str, store_id: str = Depends(get_current_store)):
     await db.delete_reservation(reservation_id)
     return RedirectResponse(url="/admin/dashboard", status_code=303)
-
 
 
 # --- Menu Management Routes ---
 
 @app.get("/admin/menu", response_class=HTMLResponse)
-async def menu_dashboard(request: Request):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
+async def menu_dashboard(request: Request, store_id: str = Depends(get_current_store)):
     menu_items = await db.get_menu()
     return templates.TemplateResponse("menu_dashboard.html", {
         "request": request,
-        "menu_items": menu_items
+        "menu_items": menu_items,
     })
 
 @app.post("/admin/menu/add")
-async def add_menu_item(request: Request, name: str = Form(...), price: int = Form(...), category: str = Form(...), description: str = Form("")):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
+async def add_menu_item(name: str = Form(...), price: int = Form(...), category: str = Form(...), description: str = Form(""), store_id: str = Depends(get_current_store)):
     await db.add_menu_item(name, price, category, description)
     return RedirectResponse(url="/admin/menu", status_code=303)
 
 @app.post("/admin/menu/update/{item_id}")
-async def update_menu_item(item_id: str, request: Request, name: str = Form(...), price: int = Form(...), category: str = Form(...), description: str = Form("")):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
-    data = {
-        "name": name,
-        "price": price,
-        "category": category,
-        "description": description
-    }
+async def update_menu_item(item_id: str, name: str = Form(...), price: int = Form(...), category: str = Form(...), description: str = Form(""), store_id: str = Depends(get_current_store)):
+    data = {"name": name, "price": price, "category": category, "description": description}
     await db.update_menu_item(item_id, data)
     return RedirectResponse(url="/admin/menu", status_code=303)
 
 @app.post("/admin/menu/delete/{item_id}")
-async def delete_menu_item(item_id: str, request: Request):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
+async def delete_menu_item(item_id: str, store_id: str = Depends(get_current_store)):
     await db.delete_menu_item(item_id)
     return RedirectResponse(url="/admin/menu", status_code=303)
 
 # --- Business Hours Routes ---
 
 @app.get("/admin/hours", response_class=HTMLResponse)
-async def hours_dashboard(request: Request):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
+async def hours_dashboard(request: Request, store_id: str = Depends(get_current_store)):
     hours = await db.get_business_hours()
     days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     special_closures = await db.get_special_closures()
-    
     return templates.TemplateResponse("hours_dashboard.html", {
         "request": request,
         "hours": hours,
         "days": days,
-        "special_closures": sorted(special_closures)
+        "special_closures": sorted(special_closures),
     })
 
 @app.post("/admin/hours/update")
-async def update_hours(request: Request):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
+async def update_hours(request: Request, store_id: str = Depends(get_current_store)):
     form_data = await request.form()
     days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     new_hours = {}
-    
     for day in days:
         is_closed = form_data.get(f"{day}_closed") == "on"
         new_hours[day] = {
             "open": form_data.get(f"{day}_open"),
             "close": form_data.get(f"{day}_close"),
-            "closed": is_closed
+            "closed": is_closed,
         }
-    
     await db.update_business_hours(new_hours)
     return RedirectResponse(url="/admin/hours", status_code=303)
 
 @app.post("/admin/closures/add")
-async def add_closure(request: Request, date: str = Form(...)):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
+async def add_closure(date: str = Form(...), store_id: str = Depends(get_current_store)):
     await db.add_special_closure(date)
     return RedirectResponse(url="/admin/hours", status_code=303)
 
 @app.post("/admin/closures/remove")
-async def remove_closure(request: Request, date: str = Form(...)):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
+async def remove_closure(date: str = Form(...), store_id: str = Depends(get_current_store)):
     await db.remove_special_closure(date)
     return RedirectResponse(url="/admin/hours", status_code=303)
 
 # --- Notification Settings Routes ---
 
 @app.get("/admin/notifications", response_class=HTMLResponse)
-async def notifications_dashboard(request: Request):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
+async def notifications_dashboard(request: Request, store_id: str = Depends(get_current_store)):
     settings = await db.get_notification_settings()
     admin_ids = settings.get("admin_ids", [])
-    
     return templates.TemplateResponse("notifications_dashboard.html", {
         "request": request,
-        "admin_ids": admin_ids
+        "admin_ids": admin_ids,
     })
 
 @app.post("/admin/notifications/add")
-async def add_notification_id(request: Request, user_id: str = Form(...)):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
+async def add_notification_id(user_id: str = Form(...), store_id: str = Depends(get_current_store)):
     settings = await db.get_notification_settings()
     admin_ids = settings.get("admin_ids", [])
-    
     if user_id and user_id not in admin_ids:
         admin_ids.append(user_id.strip())
         await db.update_notification_settings(admin_ids)
-    
     return RedirectResponse(url="/admin/notifications", status_code=303)
 
 @app.post("/admin/notifications/remove")
-async def remove_notification_id(request: Request, user_id: str = Form(...)):
-    if request.cookies.get("admin_session") != "logged_in":
-        return RedirectResponse(url="/admin")
-    
+async def remove_notification_id(user_id: str = Form(...), store_id: str = Depends(get_current_store)):
     settings = await db.get_notification_settings()
     admin_ids = settings.get("admin_ids", [])
-    
     if user_id in admin_ids:
         admin_ids.remove(user_id)
         await db.update_notification_settings(admin_ids)
-    
     return RedirectResponse(url="/admin/notifications", status_code=303)
 
 # --- Webhook Routes ---

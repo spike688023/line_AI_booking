@@ -103,6 +103,26 @@ class Database:
             logger.error(f"Failed to get table config: {e}")
             return {"tables": {}, "total_capacity": 0}
 
+    async def get_store_by_admin_email(self, email: str) -> Optional[Dict]:
+        """Return the stores document whose admin_emails array contains email, or None."""
+        if not self.client:
+            return None
+        try:
+            docs = (
+                self.client.collection("stores")
+                .where("admin_emails", "array_contains", email)
+                .limit(1)
+                .stream()
+            )
+            for doc in docs:
+                data = doc.to_dict()
+                data["store_id"] = doc.id
+                return data
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get store by admin email: {e}")
+            return None
+
     # ============================================================================
     # AVAILABILITY & SEATING
     # ============================================================================
