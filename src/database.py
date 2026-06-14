@@ -84,6 +84,20 @@ class Database:
             logger.error(f"Failed to get store credentials: {e}")
             return ("", "")
 
+    async def update_line_credentials(
+        self, store_id: str, channel_access_token: str, channel_secret: str, line_bot_id: str
+    ) -> None:
+        if not self.client:
+            return
+        try:
+            self.client.collection("stores").document(store_id).set({
+                "channel_access_token": channel_access_token,
+                "channel_secret": channel_secret,
+                "line_bot_id": line_bot_id,
+            }, merge=True)
+        except Exception as e:
+            logger.error(f"Failed to update LINE credentials for {store_id}: {e}")
+
     async def get_table_config(self, store_id: str) -> Dict:
         """Return table layout from stores/{store_id}/config/table_layout."""
         if not self.client:

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LINE 設定</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/picnic">
+    <style>
+        body { background: #f5f5f5; padding: 20px; }
+        .card { max-width: 560px; margin: 40px auto; background: white; border-radius: 8px; padding: 32px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h2 { margin-bottom: 4px; }
+        p.sub { color: #666; margin-bottom: 24px; }
+        label { display: block; margin-top: 20px; font-weight: bold; }
+        input, textarea { width: 100%; margin-top: 6px; font-family: monospace; }
+        textarea { height: 80px; resize: vertical; }
+        .webhook-box { margin-top: 20px; background: #f0f0f0; border-radius: 4px; padding: 12px; font-family: monospace; font-size: 13px; word-break: break-all; }
+        .hint { color: #888; font-size: 13px; margin-top: 4px; }
+        .actions { margin-top: 28px; }
+        button[type=submit] { width: 100%; }
+        {% if line_bot_id %}
+        .status { color: #27ae60; font-size: 13px; margin-top: 8px; }
+        {% endif %}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>LINE 官方帳號設定</h2>
+        <p class="sub">貼上你的 LINE Messaging API 憑證，系統會自動設定 Webhook。</p>
+
+        <form action="/admin/line-settings" method="post">
+            <label>Channel Access Token</label>
+            <textarea name="channel_access_token" placeholder="從 LINE Developers Console → Messaging API → Channel access token 複製" required>{{ channel_access_token }}</textarea>
+
+            <label>Channel Secret</label>
+            <input type="text" name="channel_secret" placeholder="從 LINE Developers Console → Basic settings → Channel secret 複製" required>
+            <p class="hint">每次儲存都需要重新填入 Channel Secret（不儲存在頁面上）</p>
+
+            <label>Webhook URL（系統自動設定）</label>
+            <div class="webhook-box">{{ webhook_url }}</div>
+            <p class="hint">儲存後會自動把這個 URL 設定到你的 LINE 官方帳號</p>
+
+            {% if line_bot_id %}
+            <p class="status">✓ 已連結 LINE Bot ID：{{ line_bot_id }}</p>
+            {% endif %}
+
+            <div class="actions">
+                <button type="submit" class="success">儲存並設定 Webhook</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
