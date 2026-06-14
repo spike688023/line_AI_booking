@@ -792,6 +792,81 @@ class Database:
             logger.error(f"Failed to remove special closure: {e}")
 
     # ============================================================================
+    # EMPLOYEES  (stores/{store_id}/employees/)
+    # ============================================================================
+
+    async def get_employees(self, store_id: str) -> List[Dict[str, Any]]:
+        if not self.client:
+            return []
+        try:
+            docs = (
+                self.client.collection("stores")
+                .document(store_id)
+                .collection("employees")
+                .stream()
+            )
+            result = []
+            for doc in docs:
+                item = doc.to_dict()
+                item["id"] = doc.id
+                result.append(item)
+            return result
+        except Exception as e:
+            logger.error(f"Failed to get employees: {e}")
+            return []
+
+    async def add_employee(self, store_id: str, name: str, schedule: Dict[str, Any]) -> str:
+        if not self.client:
+            return "mock-id"
+        try:
+            ref = (
+                self.client.collection("stores")
+                .document(store_id)
+                .collection("employees")
+                .document()
+            )
+            ref.set({"name": name, "schedule": schedule, "created_at": firestore.SERVER_TIMESTAMP})
+            logger.info(f"Employee added: {name}")
+            return ref.id
+        except Exception as e:
+            logger.error(f"Failed to add employee: {e}")
+            return None
+
+    async def update_employee(self, store_id: str, emp_id: str, data: Dict[str, Any]) -> bool:
+        if not self.client:
+            return False
+        try:
+            (
+                self.client.collection("stores")
+                .document(store_id)
+                .collection("employees")
+                .document(emp_id)
+                .update(data)
+            )
+            logger.info(f"Employee updated: {emp_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update employee: {e}")
+            return False
+
+    async def delete_employee(self, store_id: str, emp_id: str) -> bool:
+        if not self.client:
+            return False
+        try:
+            (
+                self.client.collection("stores")
+                .document(store_id)
+                .collection("employees")
+                .document(emp_id)
+                .delete()
+            )
+            logger.info(f"Employee deleted: {emp_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete employee: {e}")
+            return False
+
+    # ============================================================================
     # NOTIFICATIONS  (stores/{store_id}/config/notifications)
     # ============================================================================
 

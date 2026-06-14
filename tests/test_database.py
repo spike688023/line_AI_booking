@@ -217,3 +217,58 @@ async def test_modify_reservation_permission_denied(db):
 
     assert result == "permission_denied"
     mock_doc_ref.update.assert_not_called()
+
+
+# ============================================================
+# T13: Employee CRUD (mock-mode stubs)
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_get_employees_mock_mode():
+    db_mock = Database()
+    db_mock.client = None
+    result = await db_mock.get_employees("store_x")
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_add_employee_mock_mode():
+    db_mock = Database()
+    db_mock.client = None
+    emp_id = await db_mock.add_employee("store_x", "小美", {"Monday": {"start": "09:00", "end": "17:00", "off": False}})
+    assert emp_id == "mock-id"
+
+
+@pytest.mark.asyncio
+async def test_update_employee_mock_mode():
+    db_mock = Database()
+    db_mock.client = None
+    result = await db_mock.update_employee("store_x", "emp1", {"name": "Updated"})
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_delete_employee_mock_mode():
+    db_mock = Database()
+    db_mock.client = None
+    result = await db_mock.delete_employee("store_x", "emp1")
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_get_employees_returns_id(db):
+    mock_doc = MagicMock()
+    mock_doc.id = "emp_abc"
+    mock_doc.to_dict.return_value = {"name": "小偉", "schedule": {}}
+    (
+        db.client.collection.return_value
+        .document.return_value
+        .collection.return_value
+        .stream.return_value
+    ) = iter([mock_doc])
+
+    result = await db.get_employees("store_x")
+
+    assert len(result) == 1
+    assert result[0]["id"] == "emp_abc"
+    assert result[0]["name"] == "小偉"
