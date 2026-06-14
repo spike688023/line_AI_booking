@@ -640,16 +640,15 @@ class Database:
             logger.error(f"Failed to fetch menu: {e}")
             return []
 
-    async def add_menu_item(self, store_id: str, name: str, price: int, category: str, description: str = "") -> str:
+    async def add_menu_item(self, store_id: str, name: str, duration: int, price: int = 0) -> str:
         if not self.client:
             return "mock-id"
         try:
             ref = self.client.collection("stores").document(store_id).collection("menu").document()
             ref.set({
                 "name": name,
+                "duration": duration,
                 "price": price,
-                "category": category,
-                "description": description,
                 "created_at": firestore.SERVER_TIMESTAMP,
             })
             logger.info(f"Menu item added: {name}")

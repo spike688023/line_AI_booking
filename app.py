@@ -70,7 +70,9 @@ async def _exchange_google_code_for_email(code: str) -> str:
             "redirect_uri": GOOGLE_REDIRECT_URI,
             "grant_type": "authorization_code",
         })
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            logger.error(f"Google token exchange error {resp.status_code}: {resp.text} | redirect_uri={GOOGLE_REDIRECT_URI} | client_id={GOOGLE_CLIENT_ID[:20]}...")
+            resp.raise_for_status()
         id_token_str = resp.json()["id_token"]
     claims = pyjwt.decode(id_token_str, options={"verify_signature": False})
     return claims["email"]
@@ -96,6 +98,18 @@ async def get_current_store(request: Request) -> str:
         raise HTTPException(status_code=307, headers={"Location": "/admin"})
 
 
+async def get_current_email(request: Request) -> str:
+    """FastAPI dependency: returns admin email from JWT cookie, or empty string."""
+    token = request.cookies.get("admin_token")
+    if not token:
+        return ""
+    try:
+        payload = _verify_admin_jwt(token)
+        return payload.get("email", "")
+    except Exception:
+        return ""
+
+
 async def send_admin_notification(message: str):
     """Send a push message to all admins. Requires a line_bot_api instance — wired in T7."""
     logger.warning("send_admin_notification: no per-store line_bot_api yet (wired in T7)")
@@ -104,6 +118,12 @@ async def send_admin_notification(message: str):
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Coffee Shop Agent is running"}
+
+@app.get("/admin/logout")
+async def admin_logout():
+    response = RedirectResponse(url="/admin", status_code=303)
+    response.delete_cookie("admin_token")
+    return response
 
 # --- Admin Routes ---
 
@@ -145,12 +165,13 @@ async def google_oauth_callback(code: str = None):
     return response
 
 @app.get("/admin/dashboard", response_class=HTMLResponse)
-async def admin_dashboard(request: Request, include_past: bool = False, store_id: str = Depends(get_current_store)):
-    reservations = await db.get_all_reservations(include_past=include_past)
+async def admin_dashboard(request: Request, include_past: bool = False, store_id: str = Depends(get_current_store), email: str = Depends(get_current_email)):
+    reservations = await db.get_all_reservations(store_id, include_past=include_past)
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "reservations": reservations,
         "include_past": include_past,
+        "admin_email": email,
     })
 
 @app.get("/admin/line-settings", response_class=HTMLResponse)
@@ -182,10 +203,12 @@ async def save_line_settings(
 
         # Auto-set webhook URL
         webhook_url = f"{_REDIRECT_BASE}/callback"
-        await client.put(LINE_WEBHOOK_URL,
+        wh_resp = await client.put(LINE_WEBHOOK_URL,
             headers={"Authorization": f"Bearer {channel_access_token}"},
-            json={"webhook": webhook_url},
+            json={"webhookEndpoint": webhook_url},
         )
+        if wh_resp.status_code != 200:
+            logger.error(f"LINE webhook update failed {wh_resp.status_code}: {wh_resp.text} | url={webhook_url}")
 
     await db.update_line_credentials(store_id, channel_access_token, channel_secret, line_bot_id)
     return RedirectResponse(url="/admin/dashboard", status_code=303)
@@ -206,35 +229,34 @@ async def delete_reservation(reservation_id: str, store_id: str = Depends(get_cu
 
 @app.get("/admin/menu", response_class=HTMLResponse)
 async def menu_dashboard(request: Request, store_id: str = Depends(get_current_store)):
-    menu_items = await db.get_menu()
+    menu_items = await db.get_menu(store_id)
     return templates.TemplateResponse("menu_dashboard.html", {
         "request": request,
         "menu_items": menu_items,
     })
 
 @app.post("/admin/menu/add")
-async def add_menu_item(name: str = Form(...), price: int = Form(...), category: str = Form(...), description: str = Form(""), store_id: str = Depends(get_current_store)):
-    await db.add_menu_item(name, price, category, description)
+async def add_menu_item(name: str = Form(...), duration: int = Form(...), price: int = Form(0), store_id: str = Depends(get_current_store)):
+    await db.add_menu_item(store_id, name, duration, price)
     return RedirectResponse(url="/admin/menu", status_code=303)
 
 @app.post("/admin/menu/update/{item_id}")
-async def update_menu_item(item_id: str, name: str = Form(...), price: int = Form(...), category: str = Form(...), description: str = Form(""), store_id: str = Depends(get_current_store)):
-    data = {"name": name, "price": price, "category": category, "description": description}
-    await db.update_menu_item(item_id, data)
+async def update_menu_item(item_id: str, name: str = Form(...), duration: int = Form(...), price: int = Form(0), store_id: str = Depends(get_current_store)):
+    await db.update_menu_item(store_id, item_id, {"name": name, "duration": duration, "price": price})
     return RedirectResponse(url="/admin/menu", status_code=303)
 
 @app.post("/admin/menu/delete/{item_id}")
 async def delete_menu_item(item_id: str, store_id: str = Depends(get_current_store)):
-    await db.delete_menu_item(item_id)
+    await db.delete_menu_item(store_id, item_id)
     return RedirectResponse(url="/admin/menu", status_code=303)
 
 # --- Business Hours Routes ---
 
 @app.get("/admin/hours", response_class=HTMLResponse)
 async def hours_dashboard(request: Request, store_id: str = Depends(get_current_store)):
-    hours = await db.get_business_hours()
+    hours = await db.get_business_hours(store_id)
     days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    special_closures = await db.get_special_closures()
+    special_closures = await db.get_special_closures(store_id)
     return templates.TemplateResponse("hours_dashboard.html", {
         "request": request,
         "hours": hours,
@@ -254,24 +276,24 @@ async def update_hours(request: Request, store_id: str = Depends(get_current_sto
             "close": form_data.get(f"{day}_close"),
             "closed": is_closed,
         }
-    await db.update_business_hours(new_hours)
+    await db.update_business_hours(store_id, new_hours)
     return RedirectResponse(url="/admin/hours", status_code=303)
 
 @app.post("/admin/closures/add")
 async def add_closure(date: str = Form(...), store_id: str = Depends(get_current_store)):
-    await db.add_special_closure(date)
+    await db.add_special_closure(store_id, date)
     return RedirectResponse(url="/admin/hours", status_code=303)
 
 @app.post("/admin/closures/remove")
 async def remove_closure(date: str = Form(...), store_id: str = Depends(get_current_store)):
-    await db.remove_special_closure(date)
+    await db.remove_special_closure(store_id, date)
     return RedirectResponse(url="/admin/hours", status_code=303)
 
 # --- Notification Settings Routes ---
 
 @app.get("/admin/notifications", response_class=HTMLResponse)
 async def notifications_dashboard(request: Request, store_id: str = Depends(get_current_store)):
-    settings = await db.get_notification_settings()
+    settings = await db.get_notification_settings(store_id)
     admin_ids = settings.get("admin_ids", [])
     return templates.TemplateResponse("notifications_dashboard.html", {
         "request": request,
@@ -280,20 +302,20 @@ async def notifications_dashboard(request: Request, store_id: str = Depends(get_
 
 @app.post("/admin/notifications/add")
 async def add_notification_id(user_id: str = Form(...), store_id: str = Depends(get_current_store)):
-    settings = await db.get_notification_settings()
+    settings = await db.get_notification_settings(store_id)
     admin_ids = settings.get("admin_ids", [])
     if user_id and user_id not in admin_ids:
         admin_ids.append(user_id.strip())
-        await db.update_notification_settings(admin_ids)
+        await db.update_notification_settings(store_id, admin_ids)
     return RedirectResponse(url="/admin/notifications", status_code=303)
 
 @app.post("/admin/notifications/remove")
 async def remove_notification_id(user_id: str = Form(...), store_id: str = Depends(get_current_store)):
-    settings = await db.get_notification_settings()
+    settings = await db.get_notification_settings(store_id)
     admin_ids = settings.get("admin_ids", [])
     if user_id in admin_ids:
         admin_ids.remove(user_id)
-        await db.update_notification_settings(admin_ids)
+        await db.update_notification_settings(store_id, admin_ids)
     return RedirectResponse(url="/admin/notifications", status_code=303)
 
 # --- Webhook Routes ---
