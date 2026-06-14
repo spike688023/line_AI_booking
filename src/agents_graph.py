@@ -81,17 +81,27 @@ def detect_language(text: str) -> Literal["zh-TW", "en"]:
 
 class LangGraphAgent:
     def __init__(self):
+        self._graph = None  # lazy — built on first process() call
+
+    def _build_graph(self):
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash",
             google_api_key=os.getenv("GOOGLE_API_KEY"),
         )
-        self.graph = create_react_agent(
+        graph = create_react_agent(
             model=llm,
             tools=_TOOLS,
             prompt=_BASE_PROMPT,
             checkpointer=MemorySaver(),
         )
         logger.info("[LangGraphAgent] ReAct agent initialized")
+        return graph
+
+    @property
+    def graph(self):
+        if self._graph is None:
+            self._graph = self._build_graph()
+        return self._graph
 
     async def _load_system_prompt(self, store_id: str) -> str:
         """Load store-specific context from DB and build a dynamic system prompt."""
