@@ -276,3 +276,232 @@ def test_settings_overview_renders_with_auth(client, mock_db):
     response = client.get("/admin/settings", cookies={"admin_token": token})
     assert response.status_code == 200
     assert "按摩" in response.text
+
+
+# ============================================================
+# T12: Menu routes pass price field
+# ============================================================
+
+def test_menu_add_route_passes_price_to_db(client, mock_db):
+    """POST /admin/menu/add must forward price to db.add_menu_item."""
+    mock_db.add_menu_item = AsyncMock(return_value="new-id")
+    token = _make_admin_jwt()
+    response = client.post(
+        "/admin/menu/add",
+        data={"name": "深層按摩", "duration": "90", "price": "1800"},
+        cookies={"admin_token": token},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    mock_db.add_menu_item.assert_called_once_with("store_abc", "深層按摩", 90, 1800)
+
+
+def test_menu_update_route_passes_price_to_db(client, mock_db):
+    """POST /admin/menu/update/{id} must include price in the update dict."""
+    mock_db.update_menu_item = AsyncMock(return_value=True)
+    token = _make_admin_jwt()
+    response = client.post(
+        "/admin/menu/update/item123",
+        data={"name": "頭部按摩", "duration": "30", "price": "600"},
+        cookies={"admin_token": token},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    mock_db.update_menu_item.assert_called_once_with(
+        "store_abc", "item123", {"name": "頭部按摩", "duration": 30, "price": 600}
+    )
+
+
+def test_menu_dashboard_shows_price_column(client, mock_db):
+    """GET /admin/menu must render the price column and value."""
+    mock_db.get_menu = AsyncMock(return_value=[
+        {"id": "1", "name": "全身按摩", "duration": 60, "price": 1200}
+    ])
+    token = _make_admin_jwt()
+    response = client.get("/admin/menu", cookies={"admin_token": token})
+    assert response.status_code == 200
+    assert "價格" in response.text
+    assert "1200" in response.text
+
+
+# ============================================================
+# T14: Employee admin routes
+# ============================================================
+
+def test_employees_list_renders_with_auth(client, mock_db):
+    """GET /admin/employees returns 200 and shows employee table."""
+    mock_db.get_employees = AsyncMock(return_value=[
+        {"id": "e1", "name": "小美", "schedule": {
+            "Monday": {"start": "09:00", "end": "17:00", "off": False},
+            "Tuesday": {"start": "09:00", "end": "17:00", "off": True},
+        }}
+    ])
+    token = _make_admin_jwt()
+    response = client.get("/admin/employees", cookies={"admin_token": token})
+    assert response.status_code == 200
+    assert "小美" in response.text
+    assert "員工排班" in response.text
+
+
+def test_employees_add_calls_db_and_redirects(client, mock_db):
+    """POST /admin/employees/add must call add_employee and redirect."""
+    mock_db.add_employee = AsyncMock(return_value="emp_new")
+    token = _make_admin_jwt()
+    form = {
+        "name": "小偉",
+        "Monday_start": "09:00", "Monday_end": "17:00",
+        "Tuesday_start": "09:00", "Tuesday_end": "17:00", "Tuesday_off": "on",
+        "Wednesday_start": "09:00", "Wednesday_end": "17:00",
+        "Thursday_start": "09:00", "Thursday_end": "17:00",
+        "Friday_start": "09:00", "Friday_end": "17:00",
+        "Saturday_start": "10:00", "Saturday_end": "18:00",
+        "Sunday_start": "10:00", "Sunday_end": "18:00", "Sunday_off": "on",
+    }
+    response = client.post(
+        "/admin/employees/add",
+        data=form,
+        cookies={"admin_token": token},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    mock_db.add_employee.assert_called_once()
+    call_args = mock_db.add_employee.call_args
+    assert call_args[0][0] == "store_abc"
+    assert call_args[0][1] == "小偉"
+    schedule = call_args[0][2]
+    assert schedule["Tuesday"]["off"] is True
+    assert schedule["Monday"]["off"] is False
+
+
+def test_employees_delete_calls_db_and_redirects(client, mock_db):
+    """POST /admin/employees/delete/{id} must call delete_employee and redirect."""
+    mock_db.delete_employee = AsyncMock(return_value=True)
+    token = _make_admin_jwt()
+    response = client.post(
+        "/admin/employees/delete/emp_abc",
+        cookies={"admin_token": token},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    mock_db.delete_employee.assert_called_once_with("store_abc", "emp_abc")
+
+
+def test_employees_requires_auth(client):
+    """GET /admin/employees without JWT must redirect."""
+    response = client.get("/admin/employees", follow_redirects=False)
+    assert response.status_code in (302, 303, 307)
+
+
+# ============================================================
+# T15/T16: Settings page content and nav links
+# ============================================================
+
+def _settings_mock_db(mock_db, **overrides):
+    defaults = {
+        "get_menu": AsyncMock(return_value=[]),
+        "get_business_hours": AsyncMock(return_value={}),
+        "get_special_closures": AsyncMock(return_value=[]),
+        "get_notification_settings": AsyncMock(return_value={"admin_ids": []}),
+        "get_store": AsyncMock(return_value={"line_bot_id": ""}),
+        "get_employees": AsyncMock(return_value=[]),
+    }
+    defaults.update(overrides)
+    for attr, val in defaults.items():
+        setattr(mock_db, attr, val)
+
+
+def test_settings_shows_price_in_menu_card(client, mock_db):
+    """Settings page renders price in the services card."""
+    _settings_mock_db(mock_db,
+        get_menu=AsyncMock(return_value=[
+            {"id": "1", "name": "腳底按摩", "duration": 60, "price": 900}
+        ])
+    )
+    token = _make_admin_jwt()
+    response = client.get("/admin/settings", cookies={"admin_token": token})
+    assert response.status_code == 200
+    assert "腳底按摩" in response.text
+    assert "900" in response.text
+
+
+def test_settings_empty_menu_shows_hint(client, mock_db):
+    """Settings page shows empty-hint when no services configured."""
+    _settings_mock_db(mock_db)
+    token = _make_admin_jwt()
+    response = client.get("/admin/settings", cookies={"admin_token": token})
+    assert response.status_code == 200
+    assert "尚未新增服務項目" in response.text
+
+
+def test_settings_empty_employees_shows_hint(client, mock_db):
+    """Settings page shows empty-hint when no employees configured."""
+    _settings_mock_db(mock_db)
+    token = _make_admin_jwt()
+    response = client.get("/admin/settings", cookies={"admin_token": token})
+    assert response.status_code == 200
+    assert "尚未設定員工班表" in response.text
+
+
+def test_settings_closure_tags_shown(client, mock_db):
+    """Settings page renders closure dates as tags."""
+    _settings_mock_db(mock_db,
+        get_special_closures=AsyncMock(return_value=["2026-01-01", "2026-02-08"])
+    )
+    token = _make_admin_jwt()
+    response = client.get("/admin/settings", cookies={"admin_token": token})
+    assert "2026-01-01" in response.text
+    assert "2026-02-08" in response.text
+
+
+def test_settings_empty_closures_shows_hint(client, mock_db):
+    """Settings page shows hint when no closures."""
+    _settings_mock_db(mock_db)
+    token = _make_admin_jwt()
+    response = client.get("/admin/settings", cookies={"admin_token": token})
+    assert "尚未設定公休日" in response.text
+
+
+def test_settings_line_bot_connected_status(client, mock_db):
+    """Settings page shows ✅ when line_bot_id is present."""
+    _settings_mock_db(mock_db,
+        get_store=AsyncMock(return_value={"line_bot_id": "Cabc123"})
+    )
+    token = _make_admin_jwt()
+    response = client.get("/admin/settings", cookies={"admin_token": token})
+    assert "✅" in response.text
+    assert "Cabc123" in response.text
+
+
+def test_settings_line_bot_disconnected_status(client, mock_db):
+    """Settings page shows ❌ when line_bot_id is empty."""
+    _settings_mock_db(mock_db,
+        get_store=AsyncMock(return_value={"line_bot_id": ""})
+    )
+    token = _make_admin_jwt()
+    response = client.get("/admin/settings", cookies={"admin_token": token})
+    assert "❌" in response.text
+
+
+def test_settings_nav_link_in_menu_dashboard(client, mock_db):
+    """menu_dashboard.html must contain a link to /admin/settings."""
+    mock_db.get_menu = AsyncMock(return_value=[])
+    token = _make_admin_jwt()
+    response = client.get("/admin/menu", cookies={"admin_token": token})
+    assert "/admin/settings" in response.text
+
+
+def test_settings_nav_link_in_hours_dashboard(client, mock_db):
+    """hours_dashboard.html must contain a link to /admin/settings."""
+    mock_db.get_business_hours = AsyncMock(return_value={})
+    mock_db.get_special_closures = AsyncMock(return_value=[])
+    token = _make_admin_jwt()
+    response = client.get("/admin/hours", cookies={"admin_token": token})
+    assert "/admin/settings" in response.text
+
+
+def test_settings_nav_link_in_notifications_dashboard(client, mock_db):
+    """notifications_dashboard.html must contain a link to /admin/settings."""
+    mock_db.get_notification_settings = AsyncMock(return_value={"admin_ids": []})
+    token = _make_admin_jwt()
+    response = client.get("/admin/notifications", cookies={"admin_token": token})
+    assert "/admin/settings" in response.text

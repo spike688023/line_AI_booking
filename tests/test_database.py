@@ -272,3 +272,103 @@ async def test_get_employees_returns_id(db):
     assert len(result) == 1
     assert result[0]["id"] == "emp_abc"
     assert result[0]["name"] == "小偉"
+
+
+# ============================================================
+# T12: add_menu_item writes price to Firestore
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_add_menu_item_writes_price(db):
+    """add_menu_item must include price in the Firestore document."""
+    ref_mock = MagicMock()
+    ref_mock.id = "item_xyz"
+    (
+        db.client.collection.return_value
+        .document.return_value
+        .collection.return_value
+        .document.return_value
+    ) = ref_mock
+
+    await db.add_menu_item("store1", "按摩", 60, price=1500)
+
+    ref_mock.set.assert_called_once()
+    written = ref_mock.set.call_args[0][0]
+    assert written["name"] == "按摩"
+    assert written["duration"] == 60
+    assert written["price"] == 1500
+
+
+@pytest.mark.asyncio
+async def test_add_menu_item_price_defaults_to_zero(db):
+    """add_menu_item price defaults to 0 when not supplied."""
+    ref_mock = MagicMock()
+    (
+        db.client.collection.return_value
+        .document.return_value
+        .collection.return_value
+        .document.return_value
+    ) = ref_mock
+
+    await db.add_menu_item("store1", "洗髮", 30)
+
+    written = ref_mock.set.call_args[0][0]
+    assert written["price"] == 0
+
+
+# ============================================================
+# T13: Employee CRUD with Firestore mock
+# ============================================================
+
+@pytest.mark.asyncio
+async def test_add_employee_calls_firestore(db):
+    """add_employee writes name and schedule to Firestore."""
+    ref_mock = MagicMock()
+    ref_mock.id = "emp_new"
+    (
+        db.client.collection.return_value
+        .document.return_value
+        .collection.return_value
+        .document.return_value
+    ) = ref_mock
+
+    schedule = {"Monday": {"start": "09:00", "end": "17:00", "off": False}}
+    emp_id = await db.add_employee("store1", "小美", schedule)
+
+    ref_mock.set.assert_called_once()
+    written = ref_mock.set.call_args[0][0]
+    assert written["name"] == "小美"
+    assert written["schedule"] == schedule
+    assert emp_id == "emp_new"
+
+
+@pytest.mark.asyncio
+async def test_update_employee_calls_firestore(db):
+    """update_employee calls Firestore .update() with the provided data."""
+    doc_ref = (
+        db.client.collection.return_value
+        .document.return_value
+        .collection.return_value
+        .document.return_value
+    )
+
+    result = await db.update_employee("store1", "emp_abc", {"name": "小偉"})
+
+    doc_ref.update.assert_called_once_with({"name": "小偉"})
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_delete_employee_calls_firestore(db):
+    """delete_employee calls Firestore .delete()."""
+    doc_ref = (
+        db.client.collection.return_value
+        .document.return_value
+        .collection.return_value
+        .document.return_value
+    )
+
+    result = await db.delete_employee("store1", "emp_abc")
+
+    doc_ref.delete.assert_called_once()
+    assert result is True
