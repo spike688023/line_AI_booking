@@ -83,17 +83,27 @@
 
 <body>
     <div class="container">
-        <div class="nav-links" style="margin-bottom: 20px;">
-            <a href="/admin/dashboard"
-                style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #0074d9; border-bottom: 2px solid #0074d9;">Reservations</a>
-            <a href="/admin/menu"
-                style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Menu Management</a>
-            <a href="/admin/hours"
-                style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Business Hours</a>
-            <a href="/admin/notifications"
-                style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Notifications</a>
-            <a href="/seating-map"
-                style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Seating Map</a>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div class="nav-links">
+                <a href="/admin/dashboard"
+                    style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #0074d9; border-bottom: 2px solid #0074d9;">Reservations</a>
+                <a href="/admin/menu"
+                    style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Menu Management</a>
+                <a href="/admin/hours"
+                    style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Business Hours</a>
+                <a href="/admin/notifications"
+                    style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Notifications</a>
+                <a href="/admin/settings"
+                    style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">⚙️ 設定總覽</a>
+            </div>
+            {% if admin_email %}
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 13px; color: #666;">{{ admin_email }}</span>
+                <a href="/admin/logout" style="font-size: 13px; color: #c0392b; text-decoration: none; padding: 4px 10px; border: 1px solid #c0392b; border-radius: 4px;">登出</a>
+            </div>
+            {% else %}
+            <a href="/admin" style="font-size: 13px; color: #0074d9; text-decoration: none; padding: 4px 10px; border: 1px solid #0074d9; border-radius: 4px;">登入</a>
+            {% endif %}
         </div>
         <div
             style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; margin-bottom: 20px; padding-bottom: 10px;">

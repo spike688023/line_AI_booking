@@ -364,6 +364,28 @@ async def remove_notification_id(user_id: str = Form(...), store_id: str = Depen
         await db.update_notification_settings(store_id, admin_ids)
     return RedirectResponse(url="/admin/notifications", status_code=303)
 
+# --- Settings Overview Route ---
+
+@app.get("/admin/settings", response_class=HTMLResponse)
+async def settings_overview(request: Request, store_id: str = Depends(get_current_store)):
+    menu_items    = await db.get_menu(store_id)
+    hours         = await db.get_business_hours(store_id)
+    closures      = await db.get_special_closures(store_id)
+    notifications = await db.get_notification_settings(store_id)
+    store         = await db.get_store(store_id)
+    employees     = await db.get_employees(store_id)
+    return templates.TemplateResponse("settings_dashboard.html", {
+        "request":     request,
+        "menu_items":  menu_items,
+        "hours":       hours,
+        "days":        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+        "closures":    sorted(closures),
+        "admin_ids":   notifications.get("admin_ids", []),
+        "line_bot_id": store.get("line_bot_id", "") if store else "",
+        "store_id":    store_id,
+        "employees":   employees,
+    })
+
 # --- Webhook Routes ---
 
 def _verify_line_signature(channel_secret: str, body: bytes, signature: str) -> bool:

@@ -1,7 +1,7 @@
 import pytest
 import jwt as pyjwt
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, create_autospec
 import os
 import hmac
 import hashlib
@@ -13,6 +13,7 @@ os.environ["GOOGLE_CLOUD_PROJECT"] = "dummy"
 os.environ["JWT_SECRET"] = "test_jwt_secret"
 
 from app import app
+from src.database import Database
 
 JWT_SECRET = "test_jwt_secret"
 
@@ -26,13 +27,14 @@ def client():
 
 @pytest.fixture
 def mock_db():
-    with patch("app.db") as mock:
-        mock.get_all_reservations = AsyncMock(return_value=[
-            {"id": "1", "date": "2025-12-25", "time": "12:00", "name": "Test User", "phone": "0912345678", "pax": 2}
-        ])
-        mock.delete_past_reservations = AsyncMock(return_value=5)
-        mock.delete_reservation = AsyncMock(return_value=True)
-        mock.modify_reservation = AsyncMock(return_value="success")
+    mock = create_autospec(Database, instance=True)
+    mock.get_all_reservations = AsyncMock(return_value=[
+        {"id": "1", "date": "2025-12-25", "time": "12:00", "name": "Test User", "phone": "0912345678", "pax": 2}
+    ])
+    mock.delete_past_reservations = AsyncMock(return_value=5)
+    mock.delete_reservation = AsyncMock(return_value=True)
+    mock.modify_reservation = AsyncMock(return_value="success")
+    with patch("app.db", mock):
         yield mock
 
 
@@ -84,14 +86,16 @@ def test_google_callback_jwt_contains_correct_claims(client):
     assert claims["email"] == "admin@example.com"
 
 
-def test_google_callback_unknown_email_returns_403(client):
-    """Email not in any store's admin_emails → 403."""
+def test_google_callback_unknown_email_creates_store(client):
+    """Email not in any store → auto-create store → redirect to /admin/line-settings."""
     with patch("app.db") as mock_db, \
          patch("app._exchange_google_code_for_email", new=AsyncMock(return_value="nobody@example.com")):
         mock_db.get_store_by_admin_email = AsyncMock(return_value=None)
-        response = client.get("/auth/google/callback?code=valid_code")
+        mock_db.create_or_update_store = AsyncMock(return_value=None)
+        response = client.get("/auth/google/callback?code=valid_code", follow_redirects=False)
 
-    assert response.status_code == 403
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/line-settings"
 
 
 # --- T9: JWT-gated admin routes ---
@@ -245,3 +249,30 @@ def test_callback_passes_store_id_to_process(client):
     call_kwargs = mock_agent.process.call_args
     assert call_kwargs.kwargs.get("store_id") == "store_abc" or \
            (len(call_kwargs.args) >= 3 and call_kwargs.args[2] == "store_abc")
+
+
+# --- T15: /admin/settings smoke test ---
+
+def test_settings_overview_requires_auth(client):
+    """GET /admin/settings without JWT redirects to /admin."""
+    response = client.get("/admin/settings", follow_redirects=False)
+    assert response.status_code in (302, 303, 307)
+
+
+def test_settings_overview_renders_with_auth(client, mock_db):
+    """GET /admin/settings with valid JWT returns 200."""
+    mock_db.get_menu = AsyncMock(return_value=[
+        {"id": "1", "name": "按摩", "duration": 60, "price": 1200}
+    ])
+    mock_db.get_business_hours = AsyncMock(return_value={
+        "Monday": {"open": "09:00", "close": "18:00", "closed": False}
+    })
+    mock_db.get_special_closures = AsyncMock(return_value=[])
+    mock_db.get_notification_settings = AsyncMock(return_value={"admin_ids": []})
+    mock_db.get_store = AsyncMock(return_value={"line_bot_id": "Ctest"})
+    mock_db.get_employees = AsyncMock(return_value=[])
+
+    token = _make_admin_jwt()
+    response = client.get("/admin/settings", cookies={"admin_token": token})
+    assert response.status_code == 200
+    assert "按摩" in response.text
