@@ -289,6 +289,52 @@ async def remove_closure(date: str = Form(...), store_id: str = Depends(get_curr
     await db.remove_special_closure(store_id, date)
     return RedirectResponse(url="/admin/hours", status_code=303)
 
+# --- Employee Routes ---
+
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+@app.get("/admin/employees", response_class=HTMLResponse)
+async def employees_dashboard(request: Request, store_id: str = Depends(get_current_store)):
+    employees = await db.get_employees(store_id)
+    return templates.TemplateResponse("employees_dashboard.html", {
+        "request": request,
+        "employees": employees,
+        "days": DAYS,
+    })
+
+@app.post("/admin/employees/add")
+async def add_employee(request: Request, name: str = Form(...), store_id: str = Depends(get_current_store)):
+    form = await request.form()
+    schedule = {}
+    for day in DAYS:
+        off = form.get(f"{day}_off") == "on"
+        schedule[day] = {
+            "start": form.get(f"{day}_start", "09:00"),
+            "end": form.get(f"{day}_end", "17:00"),
+            "off": off,
+        }
+    await db.add_employee(store_id, name, schedule)
+    return RedirectResponse(url="/admin/employees", status_code=303)
+
+@app.post("/admin/employees/update/{emp_id}")
+async def update_employee(emp_id: str, request: Request, name: str = Form(...), store_id: str = Depends(get_current_store)):
+    form = await request.form()
+    schedule = {}
+    for day in DAYS:
+        off = form.get(f"{day}_off") == "on"
+        schedule[day] = {
+            "start": form.get(f"{day}_start", "09:00"),
+            "end": form.get(f"{day}_end", "17:00"),
+            "off": off,
+        }
+    await db.update_employee(store_id, emp_id, {"name": name, "schedule": schedule})
+    return RedirectResponse(url="/admin/employees", status_code=303)
+
+@app.post("/admin/employees/delete/{emp_id}")
+async def delete_employee(emp_id: str, store_id: str = Depends(get_current_store)):
+    await db.delete_employee(store_id, emp_id)
+    return RedirectResponse(url="/admin/employees", status_code=303)
+
 # --- Notification Settings Routes ---
 
 @app.get("/admin/notifications", response_class=HTMLResponse)
