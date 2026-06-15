@@ -1,13 +1,14 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>服務項目管理</title>
+    <title>Menu Management</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/picnic">
+    {% include "_i18n.html" %}
     <style>
         body { padding: 20px; background-color: #f9f9f9; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .nav-links a { margin-right: 15px; text-decoration: none; font-weight: bold; color: #555; }
         .nav-links a.active { color: #0074d9; border-bottom: 2px solid #0074d9; }
         table { width: 100%; border-collapse: collapse; margin-top: 16px; }
@@ -26,36 +27,43 @@
 </head>
 <body>
     <div class="container">
-        <div class="nav-links" style="margin-bottom: 20px;">
-            <a href="/admin/dashboard">訂位管理</a>
-            <a href="/admin/menu" class="active">服務項目</a>
-            <a href="/admin/hours">營業時間</a>
-            <a href="/admin/notifications">通知設定</a>
-            <a href="/admin/settings">⚙️ 設定總覽</a>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div class="nav-links">
+                <a href="/admin/dashboard" data-i18n="nav.reservations">Reservations</a>
+                <a href="/admin/menu" class="active" data-i18n="nav.menu">Menu Management</a>
+                <a href="/admin/employees" data-i18n="nav.employees">Employees</a>
+                <a href="/admin/hours" data-i18n="nav.hours">Business Hours</a>
+                <a href="/admin/notifications" data-i18n="nav.notifications">Notifications</a>
+                <a href="/admin/settings" data-i18n="nav.settings">⚙️ Settings</a>
+            </div>
+            <div style="display:flex;align-items:center;">
+                {% include "_lang_toggle.html" %}
+                {% include "_user_dropdown.html" %}
+            </div>
         </div>
 
-        <h1 style="border-bottom: 2px solid #eee; padding-bottom: 10px;">💆 服務項目管理</h1>
+        <h1 style="border-bottom: 2px solid #eee; padding-bottom: 10px;" data-i18n="menu.title">💆 Menu Management</h1>
 
         {% if menu_items %}
         <table>
             <thead>
                 <tr>
-                    <th>服務名稱</th>
-                    <th>時間（分鐘）</th>
-                    <th>價格（元）</th>
-                    <th>操作</th>
+                    <th data-i18n="menu.col.name">Service Name</th>
+                    <th data-i18n="menu.col.duration">Duration (min)</th>
+                    <th data-i18n="menu.col.price">Price (NT$)</th>
+                    <th data-i18n="menu.col.actions">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for item in menu_items %}
                 <tr>
                     <td>{{ item.name }}</td>
-                    <td>{{ item.duration }} 分鐘</td>
-                    <td>{{ item.price | default(0) }} 元</td>
+                    <td>{{ item.duration }} <span data-i18n="unit.min">min</span></td>
+                    <td>{{ item.price | default(0) }}</td>
                     <td style="display: flex; gap: 6px;">
-                        <button class="pseudo" onclick="openEdit('{{ item.id }}', '{{ item.name }}', {{ item.duration }}, {{ item.price | default(0) }})">編輯</button>
-                        <form action="/admin/menu/delete/{{ item.id }}" method="post" onsubmit="return confirm('確定刪除？');" style="display:inline;">
-                            <button class="error pseudo">刪除</button>
+                        <button class="pseudo" onclick="openEdit('{{ item.id }}', '{{ item.name }}', {{ item.duration }}, {{ item.price | default(0) }})" data-i18n="menu.btn.edit">Edit</button>
+                        <form action="/admin/menu/delete/{{ item.id }}" method="post" onsubmit="return confirm(t('menu.confirm.delete'));" style="display:inline;">
+                            <button class="error pseudo" data-i18n="menu.btn.delete">Delete</button>
                         </form>
                     </td>
                 </tr>
@@ -63,41 +71,39 @@
             </tbody>
         </table>
         {% else %}
-        <p style="color: #999; margin-top: 20px;">尚未新增任何服務項目。</p>
+        <p style="color: #999; margin-top: 20px;" data-i18n="menu.empty">No menu items yet.</p>
         {% endif %}
 
-        <!-- 新增表單 -->
         <form action="/admin/menu/add" method="post" class="add-form">
             <div class="field-name">
-                <label>服務名稱</label>
-                <input type="text" name="name" placeholder="例：全身精油按摩" required>
+                <label data-i18n="menu.add.name">Service Name</label>
+                <input type="text" name="name" placeholder="e.g. Full Body Massage" data-i18n-placeholder="menu.placeholder.name" required>
             </div>
             <div class="field-duration">
-                <label>時間（分鐘）</label>
+                <label data-i18n="menu.add.duration">Duration (min)</label>
                 <input type="number" name="duration" placeholder="60" min="1" required>
             </div>
             <div class="field-price">
-                <label>價格（元）</label>
+                <label data-i18n="menu.add.price">Price (NT$)</label>
                 <input type="number" name="price" placeholder="0" min="0" value="0">
             </div>
-            <button type="submit" class="success">新增</button>
+            <button type="submit" class="success" data-i18n="menu.btn.add">Add</button>
         </form>
     </div>
 
-    <!-- 編輯 Modal -->
     <div id="editModal" class="modal">
         <div class="modal-content">
-            <h3 style="margin-top: 0;">編輯服務項目</h3>
+            <h3 style="margin-top: 0;" data-i18n="menu.modal.title">Edit Service</h3>
             <form id="editForm" method="post">
-                <label>服務名稱</label>
+                <label data-i18n="menu.add.name">Service Name</label>
                 <input type="text" name="name" id="editName" required style="margin-bottom: 12px;">
-                <label>時間（分鐘）</label>
+                <label data-i18n="menu.add.duration">Duration (min)</label>
                 <input type="number" name="duration" id="editDuration" min="1" required style="margin-bottom: 12px;">
-                <label>價格（元）</label>
+                <label data-i18n="menu.add.price">Price (NT$)</label>
                 <input type="number" name="price" id="editPrice" min="0" value="0" style="margin-bottom: 16px;">
                 <div style="display: flex; gap: 8px;">
-                    <button type="submit" class="success" style="flex: 1;">儲存</button>
-                    <button type="button" class="pseudo" onclick="closeEdit()" style="flex: 1;">取消</button>
+                    <button type="submit" class="success" style="flex: 1;" data-i18n="menu.btn.save">Save</button>
+                    <button type="button" class="pseudo" onclick="closeEdit()" style="flex: 1;" data-i18n="menu.btn.cancel">Cancel</button>
                 </div>
             </form>
         </div>

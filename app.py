@@ -201,6 +201,11 @@ async def save_line_settings(
             raise HTTPException(status_code=400, detail="Invalid Channel Access Token")
         line_bot_id = bot_resp.json()["userId"]
 
+    # Save credentials BEFORE registering webhook so /callback can look up the store
+    # when LINE sends its verification POST immediately after the PUT below.
+    await db.update_line_credentials(store_id, channel_access_token, channel_secret, line_bot_id)
+
+    async with httpx.AsyncClient() as client:
         # Auto-set webhook URL
         webhook_url = f"{_REDIRECT_BASE}/callback"
         wh_resp = await client.put(LINE_WEBHOOK_URL,
@@ -210,7 +215,6 @@ async def save_line_settings(
         if wh_resp.status_code != 200:
             logger.error(f"LINE webhook update failed {wh_resp.status_code}: {wh_resp.text} | url={webhook_url}")
 
-    await db.update_line_credentials(store_id, channel_access_token, channel_secret, line_bot_id)
     return RedirectResponse(url="/admin/dashboard", status_code=303)
 
 
@@ -228,11 +232,12 @@ async def delete_reservation(reservation_id: str, store_id: str = Depends(get_cu
 # --- Menu Management Routes ---
 
 @app.get("/admin/menu", response_class=HTMLResponse)
-async def menu_dashboard(request: Request, store_id: str = Depends(get_current_store)):
+async def menu_dashboard(request: Request, store_id: str = Depends(get_current_store), email: str = Depends(get_current_email)):
     menu_items = await db.get_menu(store_id)
     return templates.TemplateResponse("menu_dashboard.html", {
         "request": request,
         "menu_items": menu_items,
+        "admin_email": email,
     })
 
 @app.post("/admin/menu/add")
@@ -253,7 +258,7 @@ async def delete_menu_item(item_id: str, store_id: str = Depends(get_current_sto
 # --- Business Hours Routes ---
 
 @app.get("/admin/hours", response_class=HTMLResponse)
-async def hours_dashboard(request: Request, store_id: str = Depends(get_current_store)):
+async def hours_dashboard(request: Request, store_id: str = Depends(get_current_store), email: str = Depends(get_current_email)):
     hours = await db.get_business_hours(store_id)
     days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     special_closures = await db.get_special_closures(store_id)
@@ -262,6 +267,7 @@ async def hours_dashboard(request: Request, store_id: str = Depends(get_current_
         "hours": hours,
         "days": days,
         "special_closures": sorted(special_closures),
+        "admin_email": email,
     })
 
 @app.post("/admin/hours/update")
@@ -294,12 +300,13 @@ async def remove_closure(date: str = Form(...), store_id: str = Depends(get_curr
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 @app.get("/admin/employees", response_class=HTMLResponse)
-async def employees_dashboard(request: Request, store_id: str = Depends(get_current_store)):
+async def employees_dashboard(request: Request, store_id: str = Depends(get_current_store), email: str = Depends(get_current_email)):
     employees = await db.get_employees(store_id)
     return templates.TemplateResponse("employees_dashboard.html", {
         "request": request,
         "employees": employees,
         "days": DAYS,
+        "admin_email": email,
     })
 
 @app.post("/admin/employees/add")
@@ -338,12 +345,13 @@ async def delete_employee(emp_id: str, store_id: str = Depends(get_current_store
 # --- Notification Settings Routes ---
 
 @app.get("/admin/notifications", response_class=HTMLResponse)
-async def notifications_dashboard(request: Request, store_id: str = Depends(get_current_store)):
+async def notifications_dashboard(request: Request, store_id: str = Depends(get_current_store), email: str = Depends(get_current_email)):
     settings = await db.get_notification_settings(store_id)
     admin_ids = settings.get("admin_ids", [])
     return templates.TemplateResponse("notifications_dashboard.html", {
         "request": request,
         "admin_ids": admin_ids,
+        "admin_email": email,
     })
 
 @app.post("/admin/notifications/add")
@@ -367,7 +375,7 @@ async def remove_notification_id(user_id: str = Form(...), store_id: str = Depen
 # --- Settings Overview Route ---
 
 @app.get("/admin/settings", response_class=HTMLResponse)
-async def settings_overview(request: Request, store_id: str = Depends(get_current_store)):
+async def settings_overview(request: Request, store_id: str = Depends(get_current_store), email: str = Depends(get_current_email)):
     menu_items    = await db.get_menu(store_id)
     hours         = await db.get_business_hours(store_id)
     closures      = await db.get_special_closures(store_id)
@@ -384,6 +392,7 @@ async def settings_overview(request: Request, store_id: str = Depends(get_curren
         "line_bot_id": store.get("line_bot_id", "") if store else "",
         "store_id":    store_id,
         "employees":   employees,
+        "admin_email": email,
     })
 
 # --- Webhook Routes ---

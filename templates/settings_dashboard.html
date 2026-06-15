@@ -1,13 +1,14 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>設定總覽</title>
+    <title>Settings Overview</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/picnic">
+    {% include "_i18n.html" %}
     <style>
         body { padding: 20px; background-color: #f9f9f9; }
-        .container { max-width: 900px; margin: 0 auto; }
+        .container { max-width: 1000px; margin: 0 auto; }
         .nav-links a { margin-right: 15px; text-decoration: none; font-weight: bold; color: #555; }
         .nav-links a.active { color: #0074d9; border-bottom: 2px solid #0074d9; }
         .card { background: white; border: 1px solid #eee; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
@@ -32,85 +33,103 @@
 </head>
 <body>
 <div class="container">
-    <div class="nav-links" style="margin-bottom: 20px; background: white; padding: 14px 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-        <a href="/admin/dashboard">訂位管理</a>
-        <a href="/admin/menu">服務項目</a>
-        <a href="/admin/employees">員工排班</a>
-        <a href="/admin/hours">營業時間</a>
-        <a href="/admin/notifications">通知設定</a>
-        <a href="/admin/settings" class="active">⚙️ 設定總覽</a>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: white; padding: 14px 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+        <div class="nav-links">
+            <a href="/admin/dashboard" data-i18n="nav.reservations">Reservations</a>
+            <a href="/admin/menu" data-i18n="nav.menu">Menu Management</a>
+            <a href="/admin/employees" data-i18n="nav.employees">Employees</a>
+            <a href="/admin/hours" data-i18n="nav.hours">Business Hours</a>
+            <a href="/admin/notifications" data-i18n="nav.notifications">Notifications</a>
+            <a href="/admin/settings" class="active" data-i18n="nav.settings">⚙️ Settings</a>
+        </div>
+        <div style="display:flex;align-items:center;">
+            {% include "_lang_toggle.html" %}
+            {% include "_user_dropdown.html" %}
+        </div>
     </div>
 
-    <h1 style="margin-bottom: 20px; font-size: 22px;">⚙️ 設定總覽</h1>
+    <h1 style="margin-bottom: 20px; font-size: 22px;" data-i18n="settings.title">⚙️ Settings Overview</h1>
 
-    <!-- Card 1: 服務項目 -->
+    <!-- Card 1: Menu Items -->
     <div class="card">
         <div class="card-header">
-            <h2>💆 服務項目（{{ menu_items | length }} 項）</h2>
-            <a href="/admin/menu">✏️ 編輯</a>
+            <h2><span data-i18n="settings.menuCard">💆 Menu Items</span> ({{ menu_items | length }})</h2>
+            <a href="/admin/menu" data-i18n="settings.edit">✏️ Edit</a>
         </div>
         {% if menu_items %}
         <table>
-            <thead><tr><th>服務名稱</th><th>時間</th><th>價格</th></tr></thead>
+            <thead><tr>
+                <th data-i18n="settings.col.service">Service</th>
+                <th data-i18n="settings.col.duration">Duration</th>
+                <th data-i18n="settings.col.price">Price</th>
+            </tr></thead>
             <tbody>
             {% for item in menu_items %}
             <tr>
                 <td>{{ item.name }}</td>
-                <td>{{ item.duration }} 分鐘</td>
-                <td>{{ item.price | default(0) }} 元</td>
+                <td>{{ item.duration }} <span data-i18n="unit.min">min</span></td>
+                <td>{{ item.price | default(0) }}</td>
             </tr>
             {% endfor %}
             </tbody>
         </table>
         {% else %}
-        <p class="empty-hint">尚未新增服務項目。</p>
+        <p class="empty-hint" data-i18n="settings.empty.menu">No menu items configured.</p>
         {% endif %}
     </div>
 
     <div class="two-col">
-        <!-- Card 2: 員工排班 -->
+        <!-- Card 2: Employees -->
         <div class="card">
             <div class="card-header">
-                <h2>👥 員工排班（{{ employees | length }} 人）</h2>
-                <a href="/admin/employees">✏️ 編輯</a>
+                <h2><span data-i18n="settings.empCard">👥 Employees</span> ({{ employees | length }})</h2>
+                <a href="/admin/employees" data-i18n="settings.edit">✏️ Edit</a>
             </div>
-            {% set day_zh = {"Monday":"一","Tuesday":"二","Wednesday":"三","Thursday":"四","Friday":"五","Saturday":"六","Sunday":"日"} %}
+            {% set day_short = {"Monday":"Mon","Tuesday":"Tue","Wednesday":"Wed","Thursday":"Thu","Friday":"Fri","Saturday":"Sat","Sunday":"Sun"} %}
             {% if employees %}
             <table>
-                <thead><tr><th>姓名</th><th>上班日</th></tr></thead>
+                <thead><tr>
+                    <th data-i18n="settings.col.empname">Name</th>
+                    <th data-i18n="settings.col.days">Working Days</th>
+                </tr></thead>
                 <tbody>
                 {% for emp in employees %}
                 {% set working = [] %}
                 {% for day in ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"] %}
                     {% if emp.schedule and emp.schedule.get(day) and not emp.schedule[day].off %}
-                        {% set _ = working.append(day_zh[day]) %}
+                        {% set _ = working.append(day) %}
                     {% endif %}
                 {% endfor %}
                 <tr>
                     <td>{{ emp.name }}</td>
-                    <td>{{ working | join(" ") if working else "全休" }}</td>
+                    <td>
+                        {% if working %}
+                            {% for d in working %}<span data-i18n="day.{{ d }}">{{ day_short[d] }}</span> {% endfor %}
+                        {% else %}
+                            <span data-i18n="settings.off">Off</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
                 </tbody>
             </table>
             {% else %}
-            <p class="empty-hint">尚未設定員工班表。</p>
+            <p class="empty-hint" data-i18n="settings.empty.emp">No employees configured.</p>
             {% endif %}
         </div>
 
-        <!-- Card 3: 每週營業時間 -->
+        <!-- Card 3: Weekly Business Hours -->
         <div class="card">
             <div class="card-header">
-                <h2>🕐 每週營業時間</h2>
-                <a href="/admin/hours">✏️ 編輯</a>
+                <h2 data-i18n="settings.hoursCard">🕐 Weekly Business Hours</h2>
+                <a href="/admin/hours" data-i18n="settings.edit">✏️ Edit</a>
             </div>
-            {% set day_zh_full = {"Monday":"週一","Tuesday":"週二","Wednesday":"週三","Thursday":"週四","Friday":"週五","Saturday":"週六","Sunday":"週日"} %}
             {% for day in days %}
             {% set info = hours.get(day, {}) %}
             <div class="day-row">
-                <span class="day-name">{{ day_zh_full[day] }}</span>
+                <span class="day-name" data-i18n="day.{{ day }}.full">{{ day[:3] }}</span>
                 {% if info.get("closed") %}
-                <span class="closed-label">休息</span>
+                <span class="closed-label" data-i18n="settings.closed">Closed</span>
                 {% else %}
                 <span>{{ info.get("open", "–") }} – {{ info.get("close", "–") }}</span>
                 {% endif %}
@@ -120,11 +139,11 @@
     </div>
 
     <div class="two-col">
-        <!-- Card 4: 公休日 -->
+        <!-- Card 4: Holidays -->
         <div class="card">
             <div class="card-header">
-                <h2>📅 公休日（{{ closures | length }} 天）</h2>
-                <a href="/admin/hours">✏️ 編輯</a>
+                <h2><span data-i18n="settings.holidaysCard">📅 Holidays</span> ({{ closures | length }})</h2>
+                <a href="/admin/hours" data-i18n="settings.edit">✏️ Edit</a>
             </div>
             {% if closures %}
             <div>
@@ -133,39 +152,39 @@
                 {% endfor %}
             </div>
             {% else %}
-            <p class="empty-hint">尚未設定公休日。</p>
+            <p class="empty-hint" data-i18n="settings.empty.holidays">No holidays configured.</p>
             {% endif %}
         </div>
 
-        <!-- Card 5: LINE 通知接收者 -->
+        <!-- Card 5: LINE Notification Recipients -->
         <div class="card">
             <div class="card-header">
-                <h2>🔔 LINE 通知接收者（{{ admin_ids | length }} 人）</h2>
-                <a href="/admin/notifications">✏️ 編輯</a>
+                <h2><span data-i18n="settings.notifCard">🔔 LINE Notification Recipients</span> ({{ admin_ids | length }})</h2>
+                <a href="/admin/notifications" data-i18n="settings.edit">✏️ Edit</a>
             </div>
             {% if admin_ids %}
             {% for uid in admin_ids %}
             <div class="user-id">{{ uid }}</div>
             {% endfor %}
             {% else %}
-            <p class="empty-hint">尚未設定通知接收者。</p>
+            <p class="empty-hint" data-i18n="settings.empty.notif">No notification recipients configured.</p>
             {% endif %}
         </div>
     </div>
 
-    <!-- Card 6: LINE Bot 狀態 -->
+    <!-- Card 6: LINE Bot Status -->
     <div class="card">
         <div class="card-header">
-            <h2>🤖 LINE Bot 連線狀態</h2>
-            <a href="/admin/line-settings">✏️ 編輯</a>
+            <h2 data-i18n="settings.botCard">🤖 LINE Bot Status</h2>
+            <a href="/admin/line-settings" data-i18n="settings.edit">✏️ Edit</a>
         </div>
         {% if line_bot_id %}
-        <p class="status-ok">✅ 已連線</p>
-        <div class="bot-info">Bot ID：<span>{{ line_bot_id }}</span></div>
-        <div class="bot-info">Webhook URL：<span>/callback/{{ store_id }}</span></div>
+        <p class="status-ok" data-i18n="settings.bot.connected">✅ Connected</p>
+        <div class="bot-info"><span data-i18n="settings.bot.botId">Bot ID:</span> <span>{{ line_bot_id }}</span></div>
+        <div class="bot-info"><span data-i18n="settings.bot.webhook">Webhook URL:</span> <span>/callback/{{ store_id }}</span></div>
         {% else %}
-        <p class="status-err">❌ 尚未設定 LINE 憑證</p>
-        <p style="font-size:13px; color:#888;">請前往「LINE Bot 設定」頁面輸入 Channel Access Token 與 Channel Secret。</p>
+        <p class="status-err" data-i18n="settings.bot.notSet">❌ LINE credentials not configured</p>
+        <p style="font-size:13px; color:#888;" data-i18n="settings.bot.hint">Go to LINE Bot Settings and enter your Channel Access Token and Channel Secret.</p>
         {% endif %}
     </div>
 </div>

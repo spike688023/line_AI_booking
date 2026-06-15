@@ -29,7 +29,7 @@ echo "------------------------------------------"
 echo "Ensuring service is publicly accessible..."
 echo "------------------------------------------"
 
-gcloud run services add-iam-policy-binding coffee-shop-agent \
+gcloud run services add-iam-policy-binding wellness-booking \
     --project "$PROJECT_ID" \
     --member="allUsers" \
     --role="roles/run.invoker" \

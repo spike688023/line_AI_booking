@@ -389,3 +389,471 @@ LangGraph Checkpointer 的 thread ID 改為 `f"{store_id}_{user_id}"`，確保�
 - 子域名路由（`store-a.domain.com`）
 - 店家間的計費或用量限制
 - 自動化的 TABLE_CONFIG 資料遷移腳本（現有單店資料手動搬移即可）
+
+---
+
+# SPEC: 服務項目、員工排班、公休設定
+
+> **新增功能規格（疊加於多租戶 SaaS 架構之上）**
+
+---
+
+## 目標
+
+讓店家透過 Admin Dashboard 管理三類資料：
+1. **服務項目**：名稱 + 時間（分鐘）+ 價錢 → AI 回覆客人時可準確報價
+2. **員工上班時間**：每位員工每週哪幾天、幾點到幾點 → AI 排班時不排空班
+3. **公休日**（已存在）：特定日期全店休息 → 已實作，此規格僅補文件
+
+---
+
+## 現況盤點
+
+| 功能 | 現況 | 需要做的事 |
+|---|---|---|
+| 服務項目 | 有 `name` + `duration`，**缺 `price`** | 加欄位：DB、routes、UI |
+| 員工上班時間 | **完全沒有** | 新增：DB model、CRUD、UI |
+| 公休日 | **已完成** | 無需改動 |
+
+---
+
+## F1：服務項目加入「價錢」欄位
+
+### 資料模型
+
+Firestore path：`stores/{store_id}/menu/{item_id}`
+
+```
+{
+  name:       string      # 服務名稱（例：全身精油按摩）
+  duration:   int         # 服務時間（分鐘）
+  price:      int         # 價格（台幣，整數）  ← 新增
+  created_at: timestamp
+}
+```
+
+### 需修改的程式碼
+
+**[src/database.py](src/database.py)**
+- `add_menu_item(store_id, name, duration)` → 加 `price: int` 參數，寫入 Firestore
+- `update_menu_item()` 已接收 dict，不需改介面
+
+**[app.py](app.py)**
+- `POST /admin/menu/add`（line 234）：加 `price: int = Form(...)`，傳給 `db.add_menu_item()`
+- `POST /admin/menu/update/{item_id}`（line 239）：加 `price: int = Form(...)`，寫入 dict
+
+**[templates/menu_dashboard.html](templates/menu_dashboard.html)**
+- 表格加「價格」欄（顯示 `{{ item.price }} 元`）
+- 新增表單加 `<input type="number" name="price">` 欄位
+- 編輯 Modal 加 price 輸入框
+
+### 驗收標準
+
+- [ ] 新增服務項目時可填入價錢
+- [ ] 列表顯示「服務名稱 / 時間 / 價錢」三欄
+- [ ] 編輯時可修改價錢
+- [ ] `get_menu()` 回傳的 dict 包含 `price` 欄位（供 AI System Prompt 使用）
+
+---
+
+## F2：員工上班時間管理
+
+### 資料模型
+
+Firestore path：`stores/{store_id}/employees/{employee_id}`
+
+```
+{
+  name:     string    # 員工姓名
+  schedule: {
+    Monday:    { start: "09:00", end: "17:00", off: false }
+    Tuesday:   { start: "09:00", end: "17:00", off: false }
+    Wednesday: { start: "09:00", end: "17:00", off: false }
+    Thursday:  { start: "09:00", end: "17:00", off: true  }  # off=true 表示休假
+    Friday:    { start: "09:00", end: "17:00", off: false }
+    Saturday:  { start: "10:00", end: "18:00", off: false }
+    Sunday:    { off: true }                                  # 整天休
+  }
+}
+```
+
+### 新增 DB 函式（[src/database.py](src/database.py)）
+
+```python
+async def get_employees(self, store_id: str) -> List[Dict]
+# 回傳 stores/{store_id}/employees/ 下所有 docs
+
+async def add_employee(self, store_id: str, name: str, schedule: dict) -> str
+# 新增員工，回傳 doc id
+
+async def update_employee(self, store_id: str, emp_id: str, data: dict) -> bool
+# 更新員工資料（name 或 schedule）
+
+async def delete_employee(self, store_id: str, emp_id: str) -> bool
+# 刪除員工
+```
+
+### 新增路由（[app.py](app.py)）
+
+```
+GET  /admin/employees            → 顯示員工列表頁
+POST /admin/employees/add        → 新增員工（name + schedule form）
+POST /admin/employees/update/{id} → 更新員工
+POST /admin/employees/delete/{id} → 刪除員工
+```
+
+### 新增頁面 `templates/employees_dashboard.html`
+
+UI 結構：
+```
+員工列表（表格）：姓名 | 上班日 | 操作（編輯/刪除）
+新增員工區塊：
+  - 員工姓名
+  - 每天的 checkbox（是否上班）+ 時間輸入（start/end）
+```
+
+導覽列加入「員工管理」tab，與其他頁保持一致。
+
+### AI 整合（供參考，非此 spec 實作範圍）
+
+`get_employees()` 的回傳資料未來可注入 System Prompt，讓 AI 知道「週四下午沒員工」而拒絕排班。
+
+### 驗收標準
+
+- [ ] 可新增員工並設定每週各天的上班時間
+- [ ] 可標記某天為休假（不顯示 start/end）
+- [ ] 員工列表顯示姓名與上班天數摘要
+- [ ] 可編輯、刪除員工
+- [ ] 資料存於 `stores/{store_id}/employees/` sub-collection（多租戶隔離）
+
+---
+
+## F3：公休日（已完成，僅文件）
+
+Firestore path：`stores/{store_id}/config/special_closures`
+
+- `GET /admin/hours` → 列出現有公休日、提供新增表單
+- `POST /admin/closures/add` → 新增日期
+- `POST /admin/closures/remove` → 移除日期
+
+**無需改動任何程式碼。**
+
+---
+
+## 實作順序
+
+1. **F1 Price 欄位**（改動最小，3 個檔案）
+2. **F2 Employee CRUD（database.py + app.py）**
+3. **F2 Employee UI（employees_dashboard.html）**
+
+---
+
+## 不做（此 spec 範圍外）
+
+- 員工請假申請流程（非店家管理介面）
+- 班表衝突自動警告 UI
+- AI 自動排班（員工時間只作為 System Prompt 的 context，由 AI 判斷）
+
+---
+
+# SPEC: 店家設定總覽頁（Settings Overview）
+
+---
+
+## 目標
+
+在 `/admin/settings` 新增一個**唯讀總覽頁**，讓店家登入後能一眼確認所有已設定的資料，不需逐一進各設定頁翻找。點擊各區塊右上角的「編輯」連結即可跳到對應管理頁。
+
+**目標使用者**：已完成初步設定的店家，想確認「之前設定的東西還在不在」。
+
+---
+
+## 頁面結構（`/admin/settings`）
+
+6 個 Card 卡片，依序排列：
+
+| # | Card 標題 | 資料來源 | 編輯連結 |
+|---|---|---|---|
+| 1 | 服務項目 | `get_menu()` | `/admin/menu` |
+| 2 | 員工上班時間 | `get_employees()`（F2 完成後） | `/admin/employees` |
+| 3 | 每週營業時間 | `get_business_hours()` | `/admin/hours` |
+| 4 | 公休日 | `get_special_closures()` | `/admin/hours` |
+| 5 | 通知設定（LINE 管理員） | `get_notification_settings()` | `/admin/notifications` |
+| 6 | LINE 設定狀態 | `get_store()` 的 `line_bot_id` 欄位 | `/admin/line-settings` |
+
+### Card 1：服務項目
+
+```
+服務項目（3 項）                         [編輯]
+─────────────────────────────────────
+全身精油按摩     90 分鐘    $1,800
+頭部舒壓         30 分鐘    $  600
+腳底按摩         60 分鐘    $1,200
+```
+
+若無項目：顯示「尚未新增服務項目」灰色提示。
+
+### Card 2：員工上班時間
+
+```
+員工排班（2 人）                          [編輯]
+─────────────────────────────────────
+小美   一 三 五  09:00–17:00
+小偉   二 四 六  10:00–18:00
+```
+
+若 F2 尚未實作（員工 collection 為空）：顯示「尚未設定員工班表」。
+
+### Card 3：每週營業時間
+
+```
+每週營業時間                              [編輯]
+─────────────────────────────────────
+週一  09:00 – 18:00
+週二  09:00 – 18:00
+週三  09:00 – 18:00
+週四  09:00 – 18:00
+週五  09:00 – 18:00
+週六  10:00 – 20:00
+週日  休息
+```
+
+### Card 4：公休日
+
+```
+公休日（2 天）                            [編輯]
+─────────────────────────────────────
+2026-01-01   2026-02-08
+```
+
+若無公休日：顯示「尚未設定公休日」。
+
+### Card 5：通知設定
+
+```
+LINE 通知接收者（1 人）                   [編輯]
+─────────────────────────────────────
+Uxxxxxxxxxxxxxxxxx
+```
+
+若無：顯示「尚未設定通知接收者」。
+
+### Card 6：LINE Bot 狀態
+
+```
+LINE Bot 連線狀態                         [編輯]
+─────────────────────────────────────
+✅ 已連線   Bot ID: Cxxxxxxxx
+Webhook URL: https://.../{store_id}
+```
+
+若 `line_bot_id` 為空：顯示「❌ 尚未設定 LINE 憑證」紅色提示。
+
+---
+
+## 導覽列修改
+
+所有 Admin 頁面的導覽列新增「設定總覽」tab：
+
+```
+訂位管理 | 服務項目 | 員工排班 | 營業時間 | 通知設定 | ⚙️ 設定總覽
+```
+
+---
+
+## 需修改的程式碼
+
+### [app.py](app.py) — 新增 1 個 route
+
+```python
+@app.get("/admin/settings", response_class=HTMLResponse)
+async def settings_overview(request: Request, store_id: str = Depends(get_current_store)):
+    menu_items      = await db.get_menu(store_id)
+    hours           = await db.get_business_hours(store_id)
+    closures        = await db.get_special_closures(store_id)
+    notifications   = await db.get_notification_settings(store_id)
+    store           = await db.get_store(store_id)
+    # employees = await db.get_employees(store_id)  # 待 F2 完成後解注
+    return templates.TemplateResponse("settings_dashboard.html", {
+        "request":      request,
+        "menu_items":   menu_items,
+        "hours":        hours,
+        "days":         ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],
+        "closures":     sorted(closures),
+        "admin_ids":    notifications.get("admin_ids", []),
+        "line_bot_id":  store.get("line_bot_id", "") if store else "",
+        "store_id":     store_id,
+    })
+```
+
+### [templates/settings_dashboard.html](templates/settings_dashboard.html) — 新建
+
+- 沿用其他頁的 Picnic CSS + `.container` 樣式
+- 每個 Card 用 `border: 1px solid #eee; border-radius: 8px; padding: 16px; margin-bottom: 16px;` 包裹
+- Card 右上角放 `<a href="...">✏️ 編輯</a>` 小連結
+- 資料唯讀（無表單、無 input）
+
+### 其他頁的導覽列
+
+6 個 HTML template（dashboard、menu、hours、notifications、line-settings、employees）各加一條 nav link：
+
+```html
+<a href="/admin/settings" {% if active == 'settings' %}class="active"{% endif %}>⚙️ 設定總覽</a>
+```
+
+---
+
+## `get_store()` 函式確認
+
+確認 `database.py` 是否已有 `get_store(store_id)` 函式；若無需新增：
+
+```python
+async def get_store(self, store_id: str) -> Optional[Dict]:
+    doc = self.client.collection("stores").document(store_id).get()
+    return doc.to_dict() if doc.exists else None
+```
+
+---
+
+## 驗收標準
+
+- [ ] `/admin/settings` 頁面可正常載入，不需額外登入步驟
+- [ ] 顯示服務項目清單（名稱 / 時間 / 價格）
+- [ ] 顯示每週營業時間，休息日標記「休息」
+- [ ] 顯示公休日列表；若無則顯示提示文字
+- [ ] 顯示 LINE 通知接收者列表；若無則顯示提示文字
+- [ ] 顯示 LINE Bot 連線狀態（有 `line_bot_id` 為綠色 ✅，無為紅色 ❌）
+- [ ] 各 Card 的「編輯」連結正確指向對應管理頁
+- [ ] 所有 Admin 頁導覽列新增「設定總覽」tab
+
+---
+
+## 不做（此 spec 範圍外）
+
+- 在此頁直接行內編輯（點編輯就跳轉到管理頁，不做 inline edit）
+- 設定的版本歷史或 diff 比較
+- 員工排班 Card 的完整實作（F2 完成前顯示佔位提示即可）
+
+---
+
+# SPEC: 按摩店 Agent Prompt 重寫 ＋ 員工新增
+
+> 變更日期：2026-06-15
+
+---
+
+## T1：重寫 `_BASE_PROMPT`（按摩店版本）
+
+### 動機
+
+原 prompt 寫死咖啡店樓層邏輯，不適用按摩店。改為：
+1. 移除所有樓層資訊（`floor` 由系統自動分配，LLM 不詢問）
+2. 對話風格改為「**一次問齊，缺什麼補什麼**」，而非逐題詢問
+
+### 現有 Tool 規格（不改）
+
+| Tool | 參數 | 用途 |
+|---|---|---|
+| `check_availability` | `store_id, date, time, pax` | 確認指定時段是否有空位 |
+| `execute_booking` | `store_id, user_id, date, time, pax, name, phone, floor, allow_split` | 建立訂位並觸發 Flex Message |
+
+`floor` 傳 `None`，`allow_split` 傳 `false`，皆由系統處理，LLM 不需向客人詢問。
+
+### 新 `_BASE_PROMPT` 內容
+
+```
+你是 AI 訂位助理。
+
+【訂位流程】
+一次詢問所有需要的資訊，有缺漏再補問：
+  服務項目、人數、日期、時間、姓名、電話
+資訊齊全後才呼叫工具。
+
+【工具使用規則】
+- check_availability：日期/時間/人數確認後立即呼叫，不可憑感覺回答有無空位
+- execute_booking：check_availability 確認有空位後才呼叫，floor 傳 None
+- 工具回傳 success=False：誠實告知客人失敗原因，禁止謊稱訂位成功
+
+【回應規則】
+1. 使用繁體中文
+2. 親切有禮
+3. 訂位完成後不需自行報訂位編號，系統會送出確認訊息
+```
+
+### 動態附加（`build_system_prompt`，無需改程式碼）
+
+- `【服務項目】`：DB 菜單，格式 `名稱 NT$價格 (時間 min)`
+- `【營業時間】`：每週各天
+- `【店家特別指示】`：custom_prompt 欄位
+
+### 需修改的檔案
+
+- **`src/agents_graph.py`**：替換 `_BASE_PROMPT` 字串
+
+### 驗收標準
+
+- [ ] AI 不再提到樓層相關字眼
+- [ ] 開場一次詢問所有訂位資訊，而非逐題問
+- [ ] 資訊不齊時補問缺漏欄位
+- [ ] 資訊齊全後呼叫 `check_availability`，有空位才 `execute_booking`
+- [ ] 客滿時如實告知，不謊稱成功
+
+---
+
+## T3：新增服務項目
+
+| 服務名稱 | 價格 | 時間 |
+|---|---|---|
+| 洗頭 | NT$500 | 40 min |
+| 挖耳朵 | NT$400 | 30 min |
+
+### 實作方式
+
+呼叫 `db.add_menu_item(store_id, name, duration, price)`，store_id = `1e6f6c9e76d1`。
+
+### 驗收標準
+
+- [ ] `/admin/menu` 顯示「洗頭 NT$500 / 40分鐘」
+- [ ] `/admin/menu` 顯示「挖耳朵 NT$400 / 30分鐘」
+- [ ] AI system prompt 的 `【服務項目】` 區塊包含這兩項
+
+---
+
+## T2：新增員工「老闆娘」
+
+### 資料
+
+| 欄位 | 值 |
+|---|---|
+| 姓名 | 老闆娘 |
+| 上班時間 | 每天 12:00 – 22:00 |
+| store_id | `1e6f6c9e76d1`（spike688023@gmail.com 的 MD5 前 12 碼） |
+
+### Firestore 寫入格式
+
+```
+stores/1e6f6c9e76d1/employees/{auto_id}
+{
+  name: "老闆娘",
+  schedule: {
+    Monday:    { start: "12:00", end: "22:00" },
+    Tuesday:   { start: "12:00", end: "22:00" },
+    Wednesday: { start: "12:00", end: "22:00" },
+    Thursday:  { start: "12:00", end: "22:00" },
+    Friday:    { start: "12:00", end: "22:00" },
+    Saturday:  { start: "12:00", end: "22:00" },
+    Sunday:    { start: "12:00", end: "22:00" }
+  },
+  created_at: SERVER_TIMESTAMP
+}
+```
+
+### 實作方式
+
+呼叫現有 `POST /admin/employees/add` API（Cloud Run endpoint），或直接呼叫 `db.add_employee()`。
+
+### 驗收標準
+
+- [ ] `/admin/employees` 頁面顯示「老闆娘」
+- [ ] 排班顯示週一至週日皆有上班
+- [ ] 上班時間 12:00 – 22:00

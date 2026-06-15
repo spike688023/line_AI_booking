@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coffee Shop Admin Dashboard</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/picnic">
+    {% include "_i18n.html" %}
     <style>
         body {
             padding: 20px;
@@ -85,38 +86,36 @@
     <div class="container">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <div class="nav-links">
-                <a href="/admin/dashboard"
+                <a href="/admin/dashboard" data-i18n="nav.reservations"
                     style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #0074d9; border-bottom: 2px solid #0074d9;">Reservations</a>
-                <a href="/admin/menu"
+                <a href="/admin/menu" data-i18n="nav.menu"
                     style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Menu Management</a>
-                <a href="/admin/hours"
+                <a href="/admin/employees" data-i18n="nav.employees"
+                    style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Employees</a>
+                <a href="/admin/hours" data-i18n="nav.hours"
                     style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Business Hours</a>
-                <a href="/admin/notifications"
+                <a href="/admin/notifications" data-i18n="nav.notifications"
                     style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">Notifications</a>
-                <a href="/admin/settings"
-                    style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">⚙️ 設定總覽</a>
+                <a href="/admin/settings" data-i18n="nav.settings"
+                    style="margin-right: 15px; text-decoration: none; font-weight: bold; color: #555;">⚙️ Settings</a>
             </div>
-            {% if admin_email %}
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 13px; color: #666;">{{ admin_email }}</span>
-                <a href="/admin/logout" style="font-size: 13px; color: #c0392b; text-decoration: none; padding: 4px 10px; border: 1px solid #c0392b; border-radius: 4px;">登出</a>
+            <div style="display:flex;align-items:center;">
+                {% include "_lang_toggle.html" %}
+                {% include "_user_dropdown.html" %}
             </div>
-            {% else %}
-            <a href="/admin" style="font-size: 13px; color: #0074d9; text-decoration: none; padding: 4px 10px; border: 1px solid #0074d9; border-radius: 4px;">登入</a>
-            {% endif %}
         </div>
         <div
             style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; margin-bottom: 20px; padding-bottom: 10px;">
-            <h1 style="border: none; margin: 0;">☕ Reservation Management</h1>
+            <h1 style="border: none; margin: 0;" data-i18n="dashboard.title">☕ Reservation Management</h1>
             <div style="display: flex; gap: 10px; align-items: center;">
                 <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
                     <input type="checkbox" id="showPast" {% if include_past %}checked{% endif %}
                         onchange="togglePast(this)">
-                    <span class="checkable">Show Past Reservations</span>
+                    <span class="checkable" data-i18n="dashboard.showPast">Show Past Reservations</span>
                 </label>
                 <form action="/admin/cleanup" method="post"
-                    onsubmit="return confirm('WARNING: This will permanently delete all reservations before today. Are you sure?');">
-                    <button class="error">Clean Up Old Data</button>
+                    onsubmit="return confirm(t('dashboard.confirm.cleanup'));">
+                    <button class="error" data-i18n="dashboard.cleanup">Clean Up Old Data</button>
                 </form>
             </div>
         </div>
@@ -130,13 +129,13 @@
         <table>
             <thead>
                 <tr>
-                    <th>ID</th>
-                    <th>Date</th>
-                    <th>Time</th>
-                    <th>Pax</th>
-                    <th>Name</th>
-                    <th>Phone</th>
-                    <th>Actions</th>
+                    <th data-i18n="dashboard.col.id">ID</th>
+                    <th data-i18n="dashboard.col.date">Date</th>
+                    <th data-i18n="dashboard.col.time">Time</th>
+                    <th data-i18n="dashboard.col.pax">Pax</th>
+                    <th data-i18n="dashboard.col.name">Name</th>
+                    <th data-i18n="dashboard.col.phone">Phone</th>
+                    <th data-i18n="dashboard.col.actions">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -150,8 +149,8 @@
                     <td>{{ res.phone }}</td>
                     <td class="actions">
                         <form action="/admin/delete/{{ res.id }}" method="post" style="display: inline;"
-                            onsubmit="return confirm('Are you sure you want to CANCEL this reservation?');">
-                            <button class="error" style="font-size: 0.8rem; padding: 5px 10px;">Cancel</button>
+                            onsubmit="return confirm(t('dashboard.confirm.cancel'));">
+                            <button class="error" style="font-size: 0.8rem; padding: 5px 10px;" data-i18n="dashboard.btn.cancel">Cancel</button>
                         </form>
                     </td>
                 </tr>

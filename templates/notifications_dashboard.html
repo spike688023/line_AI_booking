@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coffee Shop Notification Settings</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/picnic">
+    {% include "_i18n.html" %}
     <style>
         body {
             padding: 20px;
@@ -13,7 +14,7 @@
         }
 
         .container {
-            max-width: 800px;
+            max-width: 1000px;
             margin: 0 auto;
             background: white;
             padding: 20px;
@@ -63,17 +64,24 @@
 
 <body>
     <div class="container">
-        <div class="nav-links">
-            <a href="/admin/dashboard">Reservations</a>
-            <a href="/admin/menu">Menu Management</a>
-            <a href="/admin/hours">Business Hours</a>
-            <a href="/admin/notifications" class="active">Notifications</a>
-            <a href="/admin/settings">⚙️ 設定總覽</a>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div class="nav-links">
+                <a href="/admin/dashboard" data-i18n="nav.reservations">Reservations</a>
+                <a href="/admin/menu" data-i18n="nav.menu">Menu Management</a>
+                <a href="/admin/employees" data-i18n="nav.employees">Employees</a>
+                <a href="/admin/hours" data-i18n="nav.hours">Business Hours</a>
+                <a href="/admin/notifications" class="active" data-i18n="nav.notifications">Notifications</a>
+                <a href="/admin/settings" data-i18n="nav.settings">⚙️ Settings</a>
+            </div>
+            <div style="display:flex;align-items:center;">
+                {% include "_lang_toggle.html" %}
+                {% include "_user_dropdown.html" %}
+            </div>
         </div>
 
-        <h1>🔔 Notification Settings</h1>
+        <h1 data-i18n="notif.title">🔔 Notification Settings</h1>
 
-        <p>Manage LINE User IDs that will receive reservation notifications.</p>
+        <p data-i18n="notif.desc">Manage LINE User IDs that will receive reservation notifications.</p>
 
         <div class="id-list">
             {% if admin_ids %}
@@ -82,27 +90,26 @@
                 <span>{{ aid }}</span>
                 <form action="/admin/notifications/remove" method="post" style="margin:0;">
                     <input type="hidden" name="user_id" value="{{ aid }}">
-                    <button class="error pseudo">Remove</button>
+                    <button class="error pseudo" data-i18n="notif.btn.remove">Remove</button>
                 </form>
             </div>
             {% endfor %}
             {% else %}
-            <p style="color: #888; text-align: center;">No admin IDs configured.</p>
+            <p style="color: #888; text-align: center;" data-i18n="notif.empty">No admin IDs configured.</p>
             {% endif %}
         </div>
 
         <hr>
 
-        <h3>Add New User ID</h3>
+        <h3 data-i18n="notif.add.title">Add New User ID</h3>
         <form action="/admin/notifications/add" method="post" style="display: flex; gap: 10px;">
-            <input type="text" name="user_id" placeholder="Enter LINE User ID (U...)" required style="flex-grow: 1;">
-            <button type="submit" class="success">Add</button>
+            <input type="text" name="user_id" placeholder="Enter LINE User ID (U...)" data-i18n-placeholder="notif.placeholder" required style="flex-grow: 1;">
+            <button type="submit" class="success" data-i18n="notif.btn.add">Add</button>
         </form>
 
         <div style="margin-top: 20px; background: #eef; padding: 10px; border-radius: 4px; font-size: 0.9em;">
-            <strong>How to get User ID?</strong><br>
-            Ask the user to send the message <code>id</code> to the Coffee Shop Line Bot. The bot will reply with their
-            User ID.
+            <strong data-i18n="notif.howto">How to get User ID?</strong><br>
+            <span data-i18n-html="notif.howto.desc">Ask the user to send the message <code>id</code> to the LINE Bot. The bot will reply with their User ID.</span>
         </div>
     </div>
 </body>

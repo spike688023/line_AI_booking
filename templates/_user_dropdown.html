@@ -1,0 +1,88 @@
+<style>
+.user-dropdown-wrap {
+    position: relative;
+    display: inline-block;
+}
+.user-avatar-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: #27ae60;
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: 0;
+}
+.user-avatar-btn:hover {
+    background: #219a52;
+}
+.user-dropdown-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    min-width: 200px;
+    z-index: 1000;
+    overflow: hidden;
+}
+.user-dropdown-menu.open {
+    display: block;
+}
+.dropdown-email {
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #888;
+    border-bottom: 1px solid #f0f0f0;
+    pointer-events: none;
+    word-break: break-all;
+}
+.dropdown-item {
+    display: block;
+    padding: 11px 16px;
+    font-size: 14px;
+    text-decoration: none;
+    color: #333;
+    cursor: pointer;
+}
+.dropdown-item:hover {
+    background: #f7f7f7;
+}
+.dropdown-item.logout {
+    color: #e74c3c;
+    border-top: 1px solid #f0f0f0;
+}
+</style>
+
+{% if admin_email %}
+<div class="user-dropdown-wrap" id="userDropdownWrap">
+    <button class="user-avatar-btn" id="userAvatarBtn" onclick="toggleUserDropdown(event)" title="{{ admin_email }}">
+        {{ admin_email[0].upper() }}
+    </button>
+    <div class="user-dropdown-menu" id="userDropdownMenu">
+        <div class="dropdown-email">{{ admin_email }}</div>
+        <a href="/admin/line-settings" class="dropdown-item" data-i18n="dropdown.setting">⚙️ Setting</a>
+        <a href="/admin/logout" class="dropdown-item logout" data-i18n="dropdown.logout">Logout</a>
+    </div>
+</div>
+<script>
+function toggleUserDropdown(e) {
+    e.stopPropagation();
+    document.getElementById('userDropdownMenu').classList.toggle('open');
+}
+document.addEventListener('click', function() {
+    var menu = document.getElementById('userDropdownMenu');
+    if (menu) menu.classList.remove('open');
+});
+</script>
+{% else %}
+<a href="/admin" style="font-size: 13px; color: #0074d9; text-decoration: none; padding: 4px 10px; border: 1px solid #0074d9; border-radius: 4px;">登入</a>
+{% endif %}

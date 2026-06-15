@@ -1,13 +1,14 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>員工排班管理</title>
+    <title>Employee Management</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/picnic">
+    {% include "_i18n.html" %}
     <style>
         body { padding: 20px; background-color: #f9f9f9; }
-        .container { max-width: 900px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .nav-links a { margin-right: 15px; text-decoration: none; font-weight: bold; color: #555; }
         .nav-links a.active { color: #0074d9; border-bottom: 2px solid #0074d9; }
         table { width: 100%; border-collapse: collapse; margin-top: 16px; }
@@ -25,47 +26,58 @@
         .modal-day { border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-size: 12px; }
         .modal-day label { font-weight: bold; }
         .modal-day input[type="time"] { width: 100%; font-size: 11px; }
-        .day-label-zh { font-size: 11px; color: #888; }
     </style>
 </head>
 <body>
 <div class="container">
-    <div class="nav-links" style="margin-bottom: 20px;">
-        <a href="/admin/dashboard">訂位管理</a>
-        <a href="/admin/menu">服務項目</a>
-        <a href="/admin/employees" class="active">員工排班</a>
-        <a href="/admin/hours">營業時間</a>
-        <a href="/admin/notifications">通知設定</a>
-        <a href="/admin/settings">⚙️ 設定總覽</a>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div class="nav-links">
+            <a href="/admin/dashboard" data-i18n="nav.reservations">Reservations</a>
+            <a href="/admin/menu" data-i18n="nav.menu">Menu Management</a>
+            <a href="/admin/employees" class="active" data-i18n="nav.employees">Employees</a>
+            <a href="/admin/hours" data-i18n="nav.hours">Business Hours</a>
+            <a href="/admin/notifications" data-i18n="nav.notifications">Notifications</a>
+            <a href="/admin/settings" data-i18n="nav.settings">⚙️ Settings</a>
+        </div>
+        <div style="display:flex;align-items:center;">
+            {% include "_lang_toggle.html" %}
+            {% include "_user_dropdown.html" %}
+        </div>
     </div>
 
-    <h1 style="border-bottom: 2px solid #eee; padding-bottom: 10px;">👥 員工排班管理</h1>
+    <h1 style="border-bottom: 2px solid #eee; padding-bottom: 10px;" data-i18n="emp.title">👥 Employee Management</h1>
 
     {% if employees %}
     <table>
         <thead>
             <tr>
-                <th>員工姓名</th>
-                <th>上班日</th>
-                <th>操作</th>
+                <th data-i18n="emp.col.name">Employee Name</th>
+                <th data-i18n="emp.col.days">Working Days</th>
+                <th data-i18n="emp.col.actions">Actions</th>
             </tr>
         </thead>
         <tbody>
             {% for emp in employees %}
             {% set working_days = [] %}
-            {% set day_zh = {"Monday":"一","Tuesday":"二","Wednesday":"三","Thursday":"四","Friday":"五","Saturday":"六","Sunday":"日"} %}
+            {% set day_short = {"Monday":"Mon","Tuesday":"Tue","Wednesday":"Wed","Thursday":"Thu","Friday":"Fri","Saturday":"Sat","Sunday":"Sun"} %}
             {% for day in ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"] %}
                 {% if emp.schedule and emp.schedule.get(day) and not emp.schedule[day].off %}
-                    {% set _ = working_days.append(day_zh[day]) %}
+                    {% set _ = working_days.append(day) %}
                 {% endif %}
             {% endfor %}
             <tr>
                 <td>{{ emp.name }}</td>
-                <td>{{ working_days | join(" ") if working_days else "全休" }}</td>
+                <td>
+                    {% if working_days %}
+                        {% for d in working_days %}<span data-i18n="day.{{ d }}">{{ day_short[d] }}</span> {% endfor %}
+                    {% else %}
+                        <span data-i18n="emp.off">Off</span>
+                    {% endif %}
+                </td>
                 <td style="display: flex; gap: 6px;">
-                    <button class="pseudo" onclick="openEdit('{{ emp.id }}', '{{ emp.name }}', {{ emp.schedule | tojson }})">編輯</button>
-                    <form action="/admin/employees/delete/{{ emp.id }}" method="post" onsubmit="return confirm('確定刪除員工「{{ emp.name }}」？');" style="display:inline;">
-                        <button class="error pseudo">刪除</button>
+                    <button class="pseudo" onclick="openEdit('{{ emp.id }}', '{{ emp.name }}', {{ emp.schedule | tojson }})" data-i18n="emp.btn.edit">Edit</button>
+                    <form action="/admin/employees/delete/{{ emp.id }}" method="post" onsubmit="return confirm(t('emp.confirm.delete', '{{ emp.name }}'));" style="display:inline;">
+                        <button class="error pseudo" data-i18n="emp.btn.delete">Delete</button>
                     </form>
                 </td>
             </tr>
@@ -73,24 +85,22 @@
         </tbody>
     </table>
     {% else %}
-    <p style="color: #999; margin-top: 20px;">尚未新增任何員工。</p>
+    <p style="color: #999; margin-top: 20px;" data-i18n="emp.empty">No employees yet.</p>
     {% endif %}
 
-    <!-- 新增員工 -->
     <div class="add-section">
-        <h3 style="margin-top: 0;">新增員工</h3>
+        <h3 style="margin-top: 0;" data-i18n="emp.add.title">Add Employee</h3>
         <form action="/admin/employees/add" method="post">
             <div style="margin-bottom: 12px;">
-                <label style="font-size: 12px; color: #888; display: block; margin-bottom: 4px;">員工姓名</label>
-                <input type="text" name="name" placeholder="例：小美" required style="max-width: 240px;">
+                <label style="font-size: 12px; color: #888; display: block; margin-bottom: 4px;" data-i18n="emp.add.name">Employee Name</label>
+                <input type="text" name="name" placeholder="e.g. Alice" data-i18n-placeholder="emp.placeholder.name" required style="max-width: 240px;">
             </div>
             <div class="schedule-grid">
-                {% set day_zh = {"Monday":"週一","Tuesday":"週二","Wednesday":"週三","Thursday":"週四","Friday":"週五","Saturday":"週六","Sunday":"週日"} %}
                 {% for day in days %}
                 <div class="day-cell">
-                    <label>{{ day_zh[day] }}</label>
+                    <label data-i18n="day.{{ day }}.full">{{ day }}</label>
                     <label style="font-size: 11px; display: flex; align-items: center; gap: 4px; margin-bottom: 4px;">
-                        <input type="checkbox" name="{{ day }}_off" onchange="toggleDayInputs(this, '{{ day }}_add')"> 休
+                        <input type="checkbox" name="{{ day }}_off" onchange="toggleDayInputs(this, '{{ day }}_add')"> <span data-i18n="emp.btn.off">Off</span>
                     </label>
                     <div id="{{ day }}_add">
                         <input type="time" name="{{ day }}_start" value="09:00" style="width:100%; font-size:11px; margin-bottom:2px;">
@@ -99,32 +109,27 @@
                 </div>
                 {% endfor %}
             </div>
-            <button type="submit" class="success" style="margin-top: 16px;">新增員工</button>
+            <button type="submit" class="success" style="margin-top: 16px;" data-i18n="emp.btn.add">Add Employee</button>
         </form>
     </div>
 </div>
 
-<!-- 編輯 Modal -->
 <div id="editModal" class="modal">
     <div class="modal-content">
-        <h3 style="margin-top: 0;">編輯員工</h3>
+        <h3 style="margin-top: 0;" data-i18n="emp.modal.title">Edit Employee</h3>
         <form id="editForm" method="post">
-            <label style="font-size: 12px; color: #888; display: block; margin-bottom: 4px;">員工姓名</label>
+            <label style="font-size: 12px; color: #888; display: block; margin-bottom: 4px;" data-i18n="emp.add.name">Employee Name</label>
             <input type="text" name="name" id="editName" required style="margin-bottom: 12px; max-width: 240px;">
             <div class="modal-grid" id="editScheduleGrid"></div>
             <div style="display: flex; gap: 8px; margin-top: 16px;">
-                <button type="submit" class="success" style="flex: 1;">儲存</button>
-                <button type="button" class="pseudo" onclick="closeEdit()" style="flex: 1;">取消</button>
+                <button type="submit" class="success" style="flex: 1;" data-i18n="emp.btn.save">Save</button>
+                <button type="button" class="pseudo" onclick="closeEdit()" style="flex: 1;" data-i18n="emp.btn.cancel">Cancel</button>
             </div>
         </form>
     </div>
 </div>
 
 <script>
-    const DAY_LABELS = {
-        Monday:"週一", Tuesday:"週二", Wednesday:"週三", Thursday:"週四",
-        Friday:"週五", Saturday:"週六", Sunday:"週日"
-    };
     const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 
     function toggleDayInputs(cb, containerId) {
@@ -146,9 +151,10 @@
             const divId = `edit_${day}`;
             grid.innerHTML += `
             <div class="modal-day">
-                <label>${DAY_LABELS[day]}</label>
+                <label data-i18n="day.${day}.full">${day.substring(0,3)}</label>
                 <label style="font-size:11px; display:flex; align-items:center; gap:3px; margin:3px 0;">
-                    <input type="checkbox" name="${day}_off" ${isOff ? 'checked' : ''} onchange="toggleEditDay(this,'${divId}')"> 休
+                    <input type="checkbox" name="${day}_off" ${isOff ? 'checked' : ''} onchange="toggleEditDay(this,'${divId}')">
+                    <span data-i18n="emp.btn.off">Off</span>
                 </label>
                 <div id="${divId}" ${isOff ? 'style="opacity:0.4;pointer-events:none"' : ''}>
                     <input type="time" name="${day}_start" value="${start}" style="width:100%;font-size:11px;margin-bottom:2px;">
@@ -156,6 +162,7 @@
                 </div>
             </div>`;
         });
+        i18nApply(i18nLang());
         document.getElementById('editModal').classList.add('active');
     }
 

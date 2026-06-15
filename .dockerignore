@@ -1,0 +1,26 @@
+# Secrets — never bake into image
+.env
+.env.*
+setup-env.sh
+
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Tests (not needed in production)
+tests/
+
+# Dev/planning docs
+tasks/
+*.md
+*.log
+log/
+
+# macOS
+.DS_Store

@@ -52,3 +52,4 @@ test_output.txt
 
 # Custom directories
 interview_questions/
+setup-env.sh

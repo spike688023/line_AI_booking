@@ -218,3 +218,15 @@
 2025-12-15 14:58:16,074 [ERROR] Error sending reply: LineBotApiError: status_code=400, request_id=ab1684d7-43a1-4d14-976c-d419a5a2e8c9, error_response={"details": [], "message": "Invalid reply token"}, headers={'Server': 'legy', 'Content-Type': 'application/json', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'x-line-request-id': 'ab1684d7-43a1-4d14-976c-d419a5a2e8c9', 'x-xss-protection': '1; mode=block', 'Content-Length': '33', 'Expires': 'Mon, 15 Dec 2025 06:58:16 GMT', 'Cache-Control': 'max-age=0, no-cache, no-store', 'Pragma': 'no-cache', 'Date': 'Mon, 15 Dec 2025 06:58:16 GMT', 'Connection': 'close'}
 2025-12-15 15:35:07,673 [INFO] Reservation deleted: kTeynteBpslgrI4KHl39
 2025-12-15 15:35:13,877 [INFO] Reservation deleted: YwGlR5YTZmTxQMWSMOMU
+2026-02-04 16:23:31,624 [INFO] [LANGGRAPH] Agent initialized
+2026-02-04 16:23:31,624 [INFO] [ROUTER] Classifying user intent...
+2026-02-04 16:23:31,625 [INFO] [ROUTER] Detected intent: general_chat
+2026-02-04 16:23:31,625 [INFO] [RESPONDER] Generating response...
+2026-02-04 16:23:31,685 [INFO] AFC is enabled with max remote calls: 10.
+2026-06-14 11:21:58,168 [INFO] HTTP Request: GET http://testserver/admin "HTTP/1.1 200 OK"
+2026-06-14 11:28:21,256 [INFO] HTTP Request: GET http://testserver/admin "HTTP/1.1 200 OK"
+2026-06-14 12:36:11,300 [INFO] HTTP Request: GET http://testserver/admin "HTTP/1.1 200 OK"
+2026-06-14 12:36:11,301 [INFO] HTTP Request: GET http://testserver/admin/line-settings "HTTP/1.1 307 Temporary Redirect"
+2026-06-14 12:36:11,302 [INFO] HTTP Request: GET http://testserver/onboarding/start "HTTP/1.1 404 Not Found"
+2026-06-14 12:36:11,303 [INFO] HTTP Request: GET http://testserver/auth/line/callback "HTTP/1.1 404 Not Found"
+2026-06-14 14:37:34,034 [INFO] HTTP Request: GET https://api.line.me/v2/bot/info "HTTP/1.1 401 Unauthorized"

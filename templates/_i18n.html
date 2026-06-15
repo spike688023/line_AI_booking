@@ -1,0 +1,197 @@
+<script>
+const I18N = {
+  en: {
+    // Nav
+    'nav.reservations': 'Reservations',
+    'nav.menu': 'Menu Management',
+    'nav.employees': 'Employees',
+    'nav.hours': 'Business Hours',
+    'nav.notifications': 'Notifications',
+    'nav.settings': '⚙️ Settings',
+    // Dropdown
+    'dropdown.setting': '⚙️ Setting',
+    'dropdown.logout': 'Logout',
+    // Dashboard
+    'dashboard.title': '☕ Reservation Management',
+    'dashboard.showPast': 'Show Past Reservations',
+    'dashboard.cleanup': 'Clean Up Old Data',
+    'dashboard.confirm.cleanup': 'WARNING: This will permanently delete all reservations before today. Are you sure?',
+    'dashboard.confirm.cancel': 'Are you sure you want to cancel this reservation?',
+    'dashboard.col.id': 'ID', 'dashboard.col.date': 'Date', 'dashboard.col.time': 'Time',
+    'dashboard.col.pax': 'Pax', 'dashboard.col.name': 'Name', 'dashboard.col.phone': 'Phone',
+    'dashboard.col.actions': 'Actions', 'dashboard.btn.cancel': 'Cancel',
+    // Menu
+    'menu.title': '💆 Menu Management',
+    'menu.col.name': 'Service Name', 'menu.col.duration': 'Duration (min)',
+    'menu.col.price': 'Price (NT$)', 'menu.col.actions': 'Actions',
+    'menu.btn.edit': 'Edit', 'menu.btn.delete': 'Delete',
+    'menu.btn.add': 'Add', 'menu.btn.save': 'Save', 'menu.btn.cancel': 'Cancel',
+    'menu.empty': 'No menu items yet.',
+    'menu.add.name': 'Service Name', 'menu.add.duration': 'Duration (min)', 'menu.add.price': 'Price (NT$)',
+    'menu.placeholder.name': 'e.g. Full Body Massage',
+    'menu.modal.title': 'Edit Service',
+    'menu.confirm.delete': 'Delete this item?',
+    'unit.min': 'min',
+    // Employees
+    'emp.title': '👥 Employee Management',
+    'emp.col.name': 'Employee Name', 'emp.col.days': 'Working Days', 'emp.col.actions': 'Actions',
+    'emp.btn.edit': 'Edit', 'emp.btn.delete': 'Delete', 'emp.btn.add': 'Add Employee',
+    'emp.btn.save': 'Save', 'emp.btn.cancel': 'Cancel', 'emp.btn.off': 'Off',
+    'emp.empty': 'No employees yet.',
+    'emp.off': 'Off',
+    'emp.add.title': 'Add Employee',
+    'emp.add.name': 'Employee Name',
+    'emp.placeholder.name': 'e.g. Alice',
+    'emp.modal.title': 'Edit Employee',
+    'emp.confirm.delete': 'Delete employee "{name}"?',
+    // Hours
+    'hours.title': '📅 Special Holiday Closures',
+    'hours.desc': 'Add specific dates when the shop will be closed (e.g., National Holidays).',
+    'hours.btn.add': 'Add Closure Date',
+    // Notifications
+    'notif.title': '🔔 Notification Settings',
+    'notif.desc': 'Manage LINE User IDs that will receive reservation notifications.',
+    'notif.add.title': 'Add New User ID',
+    'notif.btn.remove': 'Remove', 'notif.btn.add': 'Add',
+    'notif.empty': 'No admin IDs configured.',
+    'notif.placeholder': 'Enter LINE User ID (U...)',
+    'notif.howto': 'How to get User ID?',
+    'notif.howto.desc': 'Ask the user to send the message <code>id</code> to the LINE Bot. The bot will reply with their User ID.',
+    // Settings
+    'settings.title': '⚙️ Settings Overview',
+    'settings.menuCard': '💆 Menu Items',
+    'settings.empCard': '👥 Employees',
+    'settings.hoursCard': '🕐 Weekly Business Hours',
+    'settings.holidaysCard': '📅 Holidays',
+    'settings.notifCard': '🔔 LINE Notification Recipients',
+    'settings.botCard': '🤖 LINE Bot Status',
+    'settings.edit': '✏️ Edit',
+    'settings.col.service': 'Service', 'settings.col.duration': 'Duration',
+    'settings.col.price': 'Price', 'settings.col.empname': 'Name', 'settings.col.days': 'Working Days',
+    'settings.empty.menu': 'No menu items configured.',
+    'settings.empty.emp': 'No employees configured.',
+    'settings.empty.holidays': 'No holidays configured.',
+    'settings.empty.notif': 'No notification recipients configured.',
+    'settings.bot.connected': '✅ Connected',
+    'settings.bot.botId': 'Bot ID:',
+    'settings.bot.webhook': 'Webhook URL:',
+    'settings.bot.notSet': '❌ LINE credentials not configured',
+    'settings.bot.hint': 'Go to LINE Bot Settings and enter your Channel Access Token and Channel Secret.',
+    'settings.closed': 'Closed',
+    'settings.off': 'Off',
+    // Day names
+    'day.Monday': 'Mon', 'day.Tuesday': 'Tue', 'day.Wednesday': 'Wed', 'day.Thursday': 'Thu',
+    'day.Friday': 'Fri', 'day.Saturday': 'Sat', 'day.Sunday': 'Sun',
+    'day.Monday.full': 'Monday', 'day.Tuesday.full': 'Tuesday', 'day.Wednesday.full': 'Wednesday',
+    'day.Thursday.full': 'Thursday', 'day.Friday.full': 'Friday',
+    'day.Saturday.full': 'Saturday', 'day.Sunday.full': 'Sunday',
+  },
+  zh: {
+    'nav.reservations': '訂位管理', 'nav.menu': '服務項目', 'nav.employees': '員工排班',
+    'nav.hours': '營業時間', 'nav.notifications': '通知設定', 'nav.settings': '⚙️ 設定總覽',
+    'dropdown.setting': '⚙️ 設定', 'dropdown.logout': '登出',
+    'dashboard.title': '☕ 訂位管理',
+    'dashboard.showPast': '顯示過去訂位', 'dashboard.cleanup': '清除舊資料',
+    'dashboard.confirm.cleanup': '警告：這將永久刪除今天以前的所有訂位。確定嗎？',
+    'dashboard.confirm.cancel': '確定要取消這筆訂位嗎？',
+    'dashboard.col.id': 'ID', 'dashboard.col.date': '日期', 'dashboard.col.time': '時間',
+    'dashboard.col.pax': '人數', 'dashboard.col.name': '姓名', 'dashboard.col.phone': '電話',
+    'dashboard.col.actions': '操作', 'dashboard.btn.cancel': '取消',
+    'menu.title': '💆 服務項目管理',
+    'menu.col.name': '服務名稱', 'menu.col.duration': '時間（分鐘）',
+    'menu.col.price': '價格（元）', 'menu.col.actions': '操作',
+    'menu.btn.edit': '編輯', 'menu.btn.delete': '刪除',
+    'menu.btn.add': '新增', 'menu.btn.save': '儲存', 'menu.btn.cancel': '取消',
+    'menu.empty': '尚未新增任何服務項目。',
+    'menu.add.name': '服務名稱', 'menu.add.duration': '時間（分鐘）', 'menu.add.price': '價格（元）',
+    'menu.placeholder.name': '例：全身精油按摩',
+    'menu.modal.title': '編輯服務項目',
+    'menu.confirm.delete': '確定刪除？',
+    'unit.min': '分鐘',
+    'emp.title': '👥 員工排班管理',
+    'emp.col.name': '員工姓名', 'emp.col.days': '上班日', 'emp.col.actions': '操作',
+    'emp.btn.edit': '編輯', 'emp.btn.delete': '刪除', 'emp.btn.add': '新增員工',
+    'emp.btn.save': '儲存', 'emp.btn.cancel': '取消', 'emp.btn.off': '休',
+    'emp.empty': '尚未新增任何員工。',
+    'emp.off': '全休',
+    'emp.add.title': '新增員工',
+    'emp.add.name': '員工姓名',
+    'emp.placeholder.name': '例：小美',
+    'emp.modal.title': '編輯員工',
+    'emp.confirm.delete': '確定刪除員工「{name}」？',
+    'hours.title': '📅 特殊公休日',
+    'hours.desc': '新增特定公休日（例如國定假日）。',
+    'hours.btn.add': '新增公休日',
+    'notif.title': '🔔 通知設定',
+    'notif.desc': '管理接收訂位通知的 LINE User ID。',
+    'notif.add.title': '新增 User ID',
+    'notif.btn.remove': '移除', 'notif.btn.add': '新增',
+    'notif.empty': '尚未設定管理員 ID。',
+    'notif.placeholder': '輸入 LINE User ID（U...）',
+    'notif.howto': '如何取得 User ID？',
+    'notif.howto.desc': '請用戶傳送 <code>id</code> 給 LINE Bot，Bot 會回覆其 User ID。',
+    'settings.title': '⚙️ 設定總覽',
+    'settings.menuCard': '💆 服務項目',
+    'settings.empCard': '👥 員工排班',
+    'settings.hoursCard': '🕐 每週營業時間',
+    'settings.holidaysCard': '📅 公休日',
+    'settings.notifCard': '🔔 LINE 通知接收者',
+    'settings.botCard': '🤖 LINE Bot 連線狀態',
+    'settings.edit': '✏️ 編輯',
+    'settings.col.service': '服務名稱', 'settings.col.duration': '時間',
+    'settings.col.price': '價格', 'settings.col.empname': '姓名', 'settings.col.days': '上班日',
+    'settings.empty.menu': '尚未新增服務項目。',
+    'settings.empty.emp': '尚未設定員工班表。',
+    'settings.empty.holidays': '尚未設定公休日。',
+    'settings.empty.notif': '尚未設定通知接收者。',
+    'settings.bot.connected': '✅ 已連線',
+    'settings.bot.botId': 'Bot ID：',
+    'settings.bot.webhook': 'Webhook URL：',
+    'settings.bot.notSet': '❌ 尚未設定 LINE 憑證',
+    'settings.bot.hint': '請前往「LINE Bot 設定」頁面輸入 Channel Access Token 與 Channel Secret。',
+    'settings.closed': '休息',
+    'settings.off': '全休',
+    'day.Monday': '一', 'day.Tuesday': '二', 'day.Wednesday': '三', 'day.Thursday': '四',
+    'day.Friday': '五', 'day.Saturday': '六', 'day.Sunday': '日',
+    'day.Monday.full': '週一', 'day.Tuesday.full': '週二', 'day.Wednesday.full': '週三',
+    'day.Thursday.full': '週四', 'day.Friday.full': '週五',
+    'day.Saturday.full': '週六', 'day.Sunday.full': '週日',
+  }
+};
+
+function i18nLang() {
+  return localStorage.getItem('admin_lang') || 'en';
+}
+
+function i18nApply(lang) {
+  const d = I18N[lang] || I18N.en;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const k = el.getAttribute('data-i18n');
+    if (d[k] !== undefined) el.textContent = d[k];
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    const k = el.getAttribute('data-i18n-html');
+    if (d[k] !== undefined) el.innerHTML = d[k];
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const k = el.getAttribute('data-i18n-placeholder');
+    if (d[k] !== undefined) el.placeholder = d[k];
+  });
+  const btn = document.getElementById('langToggleBtn');
+  if (btn) btn.textContent = lang === 'en' ? '中文' : 'EN';
+  document.documentElement.lang = lang === 'zh' ? 'zh-TW' : 'en';
+}
+
+function i18nToggle() {
+  const next = i18nLang() === 'en' ? 'zh' : 'en';
+  localStorage.setItem('admin_lang', next);
+  i18nApply(next);
+}
+
+function t(key, sub) {
+  const s = (I18N[i18nLang()] || I18N.en)[key] || key;
+  return sub !== undefined ? s.replace('{name}', sub) : s;
+}
+
+document.addEventListener('DOMContentLoaded', () => i18nApply(i18nLang()));
+</script>
